@@ -4,7 +4,7 @@ import { LAYERS, LAYER_BY_ID, GROUPS } from './layers/index.js';
 import { NOTE_NAMES, MODES } from './theory.js';
 import { GLOBAL_SECTIONS, GLOBAL_BY_ID, VISUAL_PARAMS, defaults, fill, randomize } from './params.js';
 import {
-  PALETTES, MOODS, STARTS, SECTIONS, CADENCES, generateScene, startScene, rerollSection, mutateScene,
+  PALETTES, MOODS, STARTS, SECTIONS, CADENCES, runify, unrun, generateScene, startScene, rerollSection, mutateScene,
   encodeScene, decodeScene, normalize,
 } from './scenes.js';
 import { seeded, clamp, lerp } from './util.js';
@@ -108,6 +108,7 @@ function applyScene(next, { fade = 5, animate = true } = {}) {
   else engine.g = { ...engine.g, ...state.g };
   renderTitle(animate);
   renderRhythm();
+  renderRunbar();
   updateMediaSession();
   if (openName) renderSheet();
   save();
@@ -198,12 +199,96 @@ $('#btn-generate').addEventListener('click', (e) => {
 
 /* ─────────────────────────── running ─────────────────────────── */
 
-function startRun(cadence) {
-  prefs.cadence = cadence;
-  applyScene(generateScene(newSeed(), { mood: 'run', energy: 0.9, bpm: cadence, rhythm: 'force' }), { fade: 2 });
+const running = () => state.mood === 'run';
+const cadenceViews = new Set();
+
+// Changing cadence only changes the tempo. From an ambient scene, the first
+// cadence adds a running beat underneath it instead of replacing it.
+function setCadence(v) {
+  v = clamp(Math.round(v), 120, 200);
+  prefs.cadence = v;
+  if (running()) setGlobal('bpm', v);
+  else {
+    applyScene(runify(state, v, newSeed()), { fade: 2, animate: false });
+    toast(`Running beat at ${v} steps a minute`);
+  }
   if (!started || !engine.playing) togglePlay();
-  toast(`Running at ${cadence} steps a minute`);
+  renderRunbar();
+  save();
 }
+
+function newRunMusic() {
+  const mood = MOODS.find((m) => m.id === state.prevMood) ? state.prevMood : undefined;
+  const base = generateScene(newSeed(), { mood, rhythm: false });
+  applyScene(runify(base, state.g.bpm, newSeed()));
+}
+
+function endRun() {
+  applyScene(unrun(state), { fade: 3, animate: false });
+  toast('Back to ambient');
+}
+
+function cadenceControl() {
+  const el = h('div', 'cadence');
+  const down = h('button', null, '−');
+  const out = h('output');
+  const up = h('button', null, '+');
+  down.setAttribute('aria-label', 'Slower cadence');
+  up.setAttribute('aria-label', 'Faster cadence');
+  const show = () => { out.textContent = running() ? Math.round(state.g.bpm) : prefs.cadence; };
+  down.addEventListener('click', () => setCadence((running() ? state.g.bpm : prefs.cadence) - 1));
+  up.addEventListener('click', () => setCadence((running() ? state.g.bpm : prefs.cadence) + 1));
+  el.append(down, out, up, h('span', null, 'steps / min'));
+  show();
+  cadenceViews.add(show);
+  return el;
+}
+
+function renderRunbar() {
+  const bar = $('#runbar');
+  bar.hidden = !running();
+  if (running() && !bar.firstChild) bar.append(cadenceControl());
+  cadenceViews.forEach((f) => { if (f) f(); });
+}
+
+// Tap tempo: tap along with your footsteps to set the cadence.
+const taps = [];
+function tapStep(label) {
+  const now = performance.now();
+  if (taps.length && now - taps[taps.length - 1] > 1500) taps.length = 0;
+  taps.push(now);
+  if (taps.length > 9) taps.shift();
+  if (taps.length < 4) { label.textContent = `keep tapping · ${4 - taps.length} more`; return; }
+  const iv = taps.slice(1).map((t, i) => t - taps[i]).sort((a, b) => a - b);
+  const median = iv[Math.floor(iv.length / 2)];
+  const cadence = Math.round(60000 / median);
+  label.textContent = `${cadence} steps a minute`;
+  setCadence(cadence);
+}
+
+function runSection() {
+  const run = section('Running', running() ? 'on' : 'steps per minute');
+  run.append(h('p', 'note', running()
+    ? 'Kick on every step, hats in between. Chords and melodies move at half speed so they stay calm. Changing cadence only changes the tempo.'
+    : 'Adds a steady beat under the scene that\'s playing now: kick on every step, hats in between. Most runners land between <b>160 and 180</b>.'));
+  run.append(cadenceControl());
+  const tap = h('button', 'tap', 'Tap along with your steps<small>tap 4 or more times</small>');
+  tap.addEventListener('click', () => tapStep(tap.querySelector('small')));
+  run.append(tap);
+  run.append(chips(CADENCES.map((c) => ({ value: c, label: String(c) })), running() ? state.g.bpm : null, (v) => setCadence(v), 'scroll'));
+  if (running()) {
+    const row = h('div', 'row-btns');
+    row.style.marginTop = '12px';
+    const fresh = h('button', 'btn', 'New music, same beat');
+    fresh.addEventListener('click', newRunMusic);
+    const stop = h('button', 'btn', 'End run');
+    stop.addEventListener('click', endRun);
+    row.append(fresh, stop);
+    run.append(row);
+  }
+  return run;
+}
+
 
 /*
  * iOS suspends Web Audio when the screen locks unless the page is also
@@ -343,8 +428,11 @@ function renderSheet() {
   if (!openName) return;
   const top = body.scrollTop;
   bound.clear();
+  cadenceViews.clear();
+  if ($('#runbar').firstChild) { $('#runbar').innerHTML = ''; }
   body.innerHTML = '';
   SHEETS[openName](body);
+  renderRunbar();
   body.scrollTop = top;
 }
 
@@ -480,7 +568,7 @@ function setGlobal(id, v) {
   if (id === 'beat') return setRhythm(v);
   state.g[id] = v;
   engine.setGlobal(id, v);
-  if (id === 'bpm' || id === 'meter') renderMeta();
+  if (id === 'bpm' || id === 'meter') { renderMeta(); cadenceViews.forEach((f) => f()); }
   save();
 }
 
@@ -511,10 +599,7 @@ function renderCreate(el) {
   rh.append(chips([{ value: true, label: 'With rhythm' }, { value: false, label: 'Without' }], !!state.g.beat, (v) => setRhythm(v)));
   el.append(rh);
 
-  const run = section('Running', 'steps per minute');
-  run.append(h('p', 'note', 'A steady beat to run to: kick on every step, hats in between, locked to your cadence for the whole run. Most runners land between <b>160 and 180</b>.'));
-  run.append(chips(CADENCES.map((c) => ({ value: c, label: String(c) })), state.mood === 'run' ? state.g.bpm : null, (v) => startRun(v), 'scroll'));
-  el.append(run);
+  el.append(runSection());
 
   const mood = section('Mood');
   mood.append(chips([{ value: 'any', label: 'Any' }, ...MOODS.map((m) => ({ value: m.id, label: m.name }))], prefs.mood, (v) => { prefs.mood = v; save(); }, 'scroll'));

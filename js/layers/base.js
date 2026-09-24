@@ -296,7 +296,9 @@ export class Drum extends Layer {
     const a = accent(info.sib, info.groups);
     const t = this.e.human(info.t);
     if (this.pat[i]) {
-      if (chance(clamp(this.p.prob * (0.7 + this.g.density * 0.6), 0, 1))) {
+      // a hit marked "always" never skips, whatever the density
+      const pr = this.p.prob >= 0.99 ? 1 : clamp(this.p.prob * (0.7 + this.g.density * 0.6), 0, 1);
+      if (chance(pr)) {
         const v = this.vel(0.65 + a * 0.35);
         this.hit(t, v, false, info);
         if (a >= 0.8) this.note(t, 80, this.p.pan, v * 0.5, 'drum');

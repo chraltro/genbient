@@ -96,7 +96,8 @@ export const GLOBAL_SECTIONS = [
   {
     id: 'time', title: 'Tempo & groove', params: [
       T('beat', 'Rhythm', true, { keep: true, hint: 'drums, pulse and patterned bass' }),
-      R('bpm', 'Tempo', 40, 190, 72, { step: 1, fmt: (v) => `${v} bpm`, gen: [52, 96] }),
+      T('halfTime', 'Half-time music', false, { keep: true, hint: 'drums at full tempo, chords and melodies at half' }),
+      R('bpm', 'Tempo', 40, 200, 72, { step: 1, fmt: (v) => `${v} bpm`, gen: [52, 96] }),
       C('meter', 'Meter', Object.keys(METERS).map((m) => [m, m]), '4/4', { gen: ['4/4', '4/4', '3/4', '6/8', '5/4', '7/8'] }),
       R('swing', 'Swing', 0, 0.7, 0.1, { gen: [0, 0.35] }),
       R('humanize', 'Humanise', 0, 1, 0.35, { gen: [0.15, 0.6], hint: 'timing looseness' }),
@@ -181,8 +182,9 @@ export const VISUAL_PARAMS = [
 ];
 
 // 'beat' is packed last so share links made before it existed still decode.
+const LATE = ['beat', 'halfTime']; // appended in the order they were added
 export const GLOBAL_PARAMS = [
-  ...GLOBAL_SECTIONS.flatMap((s) => s.params).filter((p) => p.id !== 'beat'),
-  GLOBAL_SECTIONS[0].params.find((p) => p.id === 'beat'),
+  ...GLOBAL_SECTIONS.flatMap((s) => s.params).filter((p) => !LATE.includes(p.id)),
+  ...LATE.map((id) => GLOBAL_SECTIONS[0].params.find((p) => p.id === id)),
 ];
 export const GLOBAL_BY_ID = Object.fromEntries(GLOBAL_PARAMS.map((p) => [p.id, p]));

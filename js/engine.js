@@ -261,7 +261,8 @@ export class Engine {
     let chordStart = false;
     if (sib === 0) {
       this.bar++;
-      const cb = this.g.chordBars;
+      // in half-time a musical bar spans two drum bars
+      const cb = this.g.chordBars * (this.g.halfTime ? 2 : 1);
       if (this.bar > 0 && this.bar % cb === 0) {
         this.advanceHarmony(this.nextStep);
         chordStart = true;
@@ -274,11 +275,19 @@ export class Engine {
     };
     this.stepT = this.nextStep;
     if (this.g.beat && this.g.pump > 0 && accent(sib, m.groups) >= 0.8 && !this.layers.kick.on) this.duck(info.t, 0.8);
+    // Half-time: drums keep the full tempo; everything musical hears a clock
+    // running at half speed, so chords, bass and melodies stay unhurried.
+    let slow = info;
+    if (this.g.halfTime) {
+      const hStep = Math.floor(info.step / 2);
+      slow = info.step % 2 ? null : { ...info, step: hStep, sib: hStep % m.steps, dur: dur * 2, t: this.nextStep };
+    }
     for (const id in this.layers) {
       const l = this.layers[id];
-      if (l.running) {
-        try { l.onStep(info); } catch (err) { console.error(id, err); }
-      }
+      if (!l.running) continue;
+      const li = l.def.group === 'rhythm' ? info : slow;
+      if (!li) continue;
+      try { l.onStep(li); } catch (err) { console.error(id, err); }
     }
     this.sib = sib + 1;
     this.nextStep += dur;

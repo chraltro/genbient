@@ -50,7 +50,7 @@ export const MOODS = [
     likes: { strings: 2.5, shimmer: 2.5, pad: 2, wind: 2, bells: 1.5, keys: 1.5, drone: 1.5, noise: 0.8 } },
   { id: 'run', name: 'Running', palettes: ['ember', 'slate', 'paper', 'dusk'], modes: ['dorian', 'aeolian', 'minpent', 'mixolydian', 'ionian'], energy: [0.85, 0.95],
     likes: { kick: 4, shaker: 3, bass: 3, arp: 2.5, pad: 2, handdrum: 1.5, strings: 1.2, keys: 1, wood: 0.8, rain: 0.5 },
-    g: { meter: '4/4', swing: [0, 0.04], humanize: [0.03, 0.12], evolve: [0.1, 0.25], chordBars: 2, rests: [0.1, 0.3] } },
+    g: { meter: '4/4', swing: [0, 0.04], humanize: [0.03, 0.12], evolve: [0.1, 0.25], chordBars: 2, rests: [0.25, 0.5], density: [0.35, 0.55] } },
   { id: 'sleep', name: 'Sleep', palettes: ['night', 'tide', 'fog'], modes: ['aeolian', 'dorian', 'majpent', 'lydian'], energy: [0, 0.15],
     likes: { drone: 3, pad: 3, ocean: 2, noise: 2, binaural: 2, rain: 1.5, strings: 1, bowls: 1.5, piano: 1, shimmer: 1.2 }, g: { bright: [0.15, 0.4], bpm: [44, 60], density: [0.1, 0.35], chordBars: [4, 8] } },
 ];
@@ -134,14 +134,39 @@ function makeRunnable(g, layers, r, bpm) {
   g.bpm = bpm || r.pick([160, 165, 170]);
   g.meter = '4/4';
   g.beat = true;
-  g.density = Math.max(g.density, 0.75);
+  g.halfTime = true;
   g.pump = r.float(0.1, 0.3);
+  // Harmony you can run to: one repeating four-chord loop, each chord held
+  // for about twenty seconds, no key changes, no surprises.
+  Object.assign(g, { prog: 'loop', loopLen: 4, chordBars: 8, repetition: 1, modulate: 0, humanize: Math.min(g.humanize, 0.1) });
+  g.density = Math.min(g.density, 0.5);
   const on = (id, p) => { layers[id] = { on: true, p: { ...layers[id].p, ...p } }; };
   on('kick', { vol: 0.62, steps: 16, hits: 4, rotate: 0, prob: 1, ghost: 0, punch: r.float(0.5, 0.8), click: r.float(0.3, 0.6), decay: r.float(0.25, 0.4), pitch: r.float(46, 58) });
   on('shaker', { vol: 0.48, steps: 16, hits: 4, rotate: 2, prob: 1, ghost: 0.12, kind: r.pick(['hat', 'shaker', 'hat']), decay: r.float(0.6, 1.2), open: r.float(0, 0.15) });
   on('bass', { vol: 0.5, pattern: r.pick(['pulse', 'pulse', 'roots', 'synco']), glide: r.float(0, 0.15) });
   if (layers.handdrum.on) Object.assign(layers.handdrum.p, { prob: 1, steps: 16 });
   layers.binaural.on = false;
+}
+
+export function runify(state, cadence, seed) {
+  const next = structuredClone(state);
+  if (next.mood !== 'run') next.prevMood = next.mood;
+  next.mood = 'run';
+  makeRunnable(next.g, next.layers, seeded(seed), cadence);
+  // makeRunnable assumes a freshly generated scene; keep the user's other choices
+  next.g.swing = Math.min(next.g.swing, 0.05);
+  return next;
+}
+
+// Leave running mode: drop the running beat, keep everything else.
+export function unrun(state) {
+  const next = structuredClone(state);
+  next.mood = MOOD_BY_ID[next.prevMood] ? next.prevMood : 'oceanic';
+  next.g.halfTime = false;
+  next.g.bpm = Math.round(clamp(next.g.bpm / 2, 50, 96));
+  next.layers.kick.on = false;
+  next.layers.shaker.on = false;
+  return next;
 }
 
 export function generateScene(seed, opts = {}) {
@@ -266,7 +291,7 @@ export function mutateScene(s, seed) {
   if (r.chance(0.5)) next.palette = r.pick(Object.keys(PALETTES));
   next.g.bright = clamp(next.g.bright + r.float(-0.1, 0.1), 0.2, 0.85);
   // a running scene keeps its cadence and its beat; everything else may drift
-  if (s.mood !== 'run') next.g.bpm = Math.round(clamp(next.g.bpm + r.float(-6, 6), 40, 190));
+  if (s.mood !== 'run') next.g.bpm = Math.round(clamp(next.g.bpm + r.float(-6, 6), 40, 200));
   else for (const id of ['kick', 'shaker']) next.layers[id] = structuredClone(s.layers[id]);
   next.name = makeName(r);
   next.tagline = makeTag(r);
@@ -305,6 +330,7 @@ export function normalize(s) {
     name: String(s?.name || 'Untitled').slice(0, 48),
     tagline: String(s?.tagline || '').slice(0, 80),
     mood: MOOD_BY_ID[s?.mood] ? s.mood : 'oceanic',
+    prevMood: MOOD_BY_ID[s?.prevMood] ? s.prevMood : undefined,
     energy: clamp(Number(s?.energy) || 0.3, 0, 1),
     seed: s?.seed >>> 0,
     palette: paletteId(s?.palette),
