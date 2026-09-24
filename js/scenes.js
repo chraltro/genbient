@@ -48,6 +48,9 @@ export const MOODS = [
     likes: { piano: 3, kick: 2.5, shaker: 2, bass: 2.5, rain: 2, keys: 1.5, pad: 1.5, wood: 1 }, g: { warmth: [0.4, 0.8], wow: [0.25, 0.6], bright: [0.3, 0.55], swing: [0.2, 0.45], complexity: [0.5, 0.95] } },
   { id: 'glacial', name: 'Glacial', palettes: ['frost', 'fog', 'tide', 'slate'], modes: ['lydian', 'majpent', 'ionian', 'whole'], energy: [0, 0.3],
     likes: { strings: 2.5, shimmer: 2.5, pad: 2, wind: 2, bells: 1.5, keys: 1.5, drone: 1.5, noise: 0.8 } },
+  { id: 'run', name: 'Running', palettes: ['ember', 'slate', 'paper', 'dusk'], modes: ['dorian', 'aeolian', 'minpent', 'mixolydian', 'ionian'], energy: [0.85, 0.95],
+    likes: { kick: 4, shaker: 3, bass: 3, arp: 2.5, pad: 2, handdrum: 1.5, strings: 1.2, keys: 1, wood: 0.8, rain: 0.5 },
+    g: { meter: '4/4', swing: [0, 0.04], humanize: [0.03, 0.12], evolve: [0.1, 0.25], chordBars: 2, rests: [0.1, 0.3] } },
   { id: 'sleep', name: 'Sleep', palettes: ['night', 'tide', 'fog'], modes: ['aeolian', 'dorian', 'majpent', 'lydian'], energy: [0, 0.15],
     likes: { drone: 3, pad: 3, ocean: 2, noise: 2, binaural: 2, rain: 1.5, strings: 1, bowls: 1.5, piano: 1, shimmer: 1.2 }, g: { bright: [0.15, 0.4], bpm: [44, 60], density: [0.1, 0.35], chordBars: [4, 8] } },
 ];
@@ -114,7 +117,7 @@ function chooseLayers(r, mood, energy, rhythmMode) {
 }
 
 function applyMoodBias(g, mood, r, energy) {
-  g.bpm = Math.round(clamp(lerp(50, 104, energy) + r.float(-8, 8), 40, 140));
+  g.bpm = Math.round(clamp(lerp(50, 104, energy) + r.float(-8, 8), 40, 190));
   g.density = clamp(lerp(0.25, 0.75, energy) + r.float(-0.12, 0.12), 0, 1);
   if (energy < 0.3) g.swing = Math.min(g.swing, 0.15);
   for (const [k, v] of Object.entries(mood.g || {})) {
@@ -124,9 +127,27 @@ function applyMoodBias(g, mood, r, energy) {
   g.touchMode = 'both';
 }
 
+// Running needs a beat you can step to: kick on every beat, hats on the
+// off-beats, a pulsing bass, all at the chosen cadence and never skipping.
+export const CADENCES = [150, 155, 160, 165, 170, 175, 180];
+function makeRunnable(g, layers, r, bpm) {
+  g.bpm = bpm || r.pick([160, 165, 170]);
+  g.meter = '4/4';
+  g.beat = true;
+  g.density = Math.max(g.density, 0.75);
+  g.pump = r.float(0.1, 0.3);
+  const on = (id, p) => { layers[id] = { on: true, p: { ...layers[id].p, ...p } }; };
+  on('kick', { vol: 0.62, steps: 16, hits: 4, rotate: 0, prob: 1, ghost: 0, punch: r.float(0.5, 0.8), click: r.float(0.3, 0.6), decay: r.float(0.25, 0.4), pitch: r.float(46, 58) });
+  on('shaker', { vol: 0.48, steps: 16, hits: 4, rotate: 2, prob: 1, ghost: 0.12, kind: r.pick(['hat', 'shaker', 'hat']), decay: r.float(0.6, 1.2), open: r.float(0, 0.15) });
+  on('bass', { vol: 0.5, pattern: r.pick(['pulse', 'pulse', 'roots', 'synco']), glide: r.float(0, 0.15) });
+  if (layers.handdrum.on) Object.assign(layers.handdrum.p, { prob: 1, steps: 16 });
+  layers.binaural.on = false;
+}
+
 export function generateScene(seed, opts = {}) {
   const r = seeded(seed);
-  const mood = MOOD_BY_ID[opts.mood] || r.pick(MOODS);
+  // Running is opt-in: it never turns up by chance in an ambient session.
+  const mood = MOOD_BY_ID[opts.mood] || r.pick(MOODS.filter((m) => m.id !== 'run'));
   const energy = opts.energy ?? r.float(...mood.energy);
   const g = randomize(GLOBAL_PARAMS, r, defaults(GLOBAL_PARAMS));
   applyMoodBias(g, mood, r, energy);
@@ -144,6 +165,7 @@ export function generateScene(seed, opts = {}) {
   }
   // a little more drive in rhythmic moods
   if (layers.kick.on && energy > 0.6) layers.kick.p.hits = r.pick([4, 4, 3, 2]);
+  if (mood.id === 'run') makeRunnable(g, layers, r, opts.bpm);
 
   return {
     v: 2,
@@ -176,7 +198,7 @@ export const SECTIONS = [
 const secIds = (id) => (GLOBAL_SECTIONS.find((s) => s.id === id)?.params || []).map((p) => p.id);
 
 export function rerollSection(state, section, seed, opts = {}) {
-  const fresh = generateScene(seed, { mood: state.mood, energy: state.energy, rhythm: state.g.beat === false ? false : undefined, ...opts });
+  const fresh = generateScene(seed, { mood: state.mood, energy: state.energy, bpm: state.g.bpm, rhythm: state.g.beat === false ? false : undefined, ...opts });
   const next = structuredClone(state);
   const copyG = (ids) => ids.forEach((id) => { next.g[id] = fresh.g[id]; });
   const copyGroup = (groups) => {
@@ -243,7 +265,9 @@ export function mutateScene(s, seed) {
   if (r.chance(0.25)) next.mode = r.pick(Object.keys(MODES).filter((m) => m !== 'whole'));
   if (r.chance(0.5)) next.palette = r.pick(Object.keys(PALETTES));
   next.g.bright = clamp(next.g.bright + r.float(-0.1, 0.1), 0.2, 0.85);
-  next.g.bpm = Math.round(clamp(next.g.bpm + r.float(-6, 6), 40, 140));
+  // a running scene keeps its cadence and its beat; everything else may drift
+  if (s.mood !== 'run') next.g.bpm = Math.round(clamp(next.g.bpm + r.float(-6, 6), 40, 190));
+  else for (const id of ['kick', 'shaker']) next.layers[id] = structuredClone(s.layers[id]);
   next.name = makeName(r);
   next.tagline = makeTag(r);
   return next;
@@ -263,6 +287,7 @@ export const STARTS = [
   { name: 'Rainy Tapes', mood: 'lofi', seed: 9901, energy: 0.6 },
   { name: 'Snowfall', mood: 'glacial', seed: 1013, energy: 0.1 },
   { name: 'Deep Sleep', mood: 'sleep', seed: 1123, energy: 0.02 },
+  { name: 'Long Run', mood: 'run', seed: 1301, energy: 0.9 },
   { name: 'Moth Hour', mood: 'nocturne', seed: 1229, energy: 0.3 },
 ];
 

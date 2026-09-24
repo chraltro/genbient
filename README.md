@@ -15,6 +15,7 @@ A generative ambient instrument for the phone. Every scene is built from a seed,
 - **About 300 controls**, all declared once in a schema (`js/params.js` and each layer's `static schema`). The UI renders from it, the generator randomises it, and share links encode it.
 - **Music engine**: tempo transport with meter (4/4, 3/4, 5/4, 6/8, 7/8, 9/8), swing and humanise. Chord loops and other progression styles change on the bar, with chord colour (7ths, 9ths, suspensions), inversions, voice leading and modulation. Melodic layers play motifs that repeat and develop, or arpeggios, wandering lines or chords.
 - **Procedural scenes**: 12 moods × energy, with a Rhythm on/off mode (off: no drums, held bass, and Random makes beatless scenes). The **Random** button rolls a new scene. Regenerate one part (harmony, rhythm, melody, texture, sound, colours) and keep the rest. Journey mode drifts on its own, and an evolution setting slowly reshapes sounds while you listen.
+- **Running**: pick a cadence (150–180 steps a minute) for a kick on every step, hats in between and a pulsing bass, locked to that tempo for the whole run. A looping silent media element keeps iOS playing with the screen locked.
 - **Touch**: drag anywhere. Left to right plays notes in key (5 instruments), up and down opens the tone and space of the whole mix.
 - **Share links** carry the complete state.
 - **Sleep tools**: sleep timer, breathing guide, wake lock, battery modes.

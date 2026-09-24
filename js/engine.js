@@ -342,7 +342,7 @@ export class Engine {
     const live = Object.values(this.layers).filter((l) => l.on);
     if (!live.length) return;
     const l = pick(live);
-    const skip = new Set(['vol', 'pan', 'oct', 'steps', 'hits', 'rotate', 'voices', 'octaves', 'phrase', 'beat']);
+    const skip = new Set(['vol', 'pan', 'oct', 'steps', 'hits', 'rotate', 'prob', 'ghost', 'voices', 'octaves', 'phrase', 'beat', 'pattern']);
     const cands = l.def.schema.filter((p) => p.type === 'range' && !skip.has(p.id));
     const n = chance(e) ? 2 : 1;
     for (let i = 0; i < n && cands.length; i++) {

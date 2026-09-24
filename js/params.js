@@ -96,7 +96,7 @@ export const GLOBAL_SECTIONS = [
   {
     id: 'time', title: 'Tempo & groove', params: [
       T('beat', 'Rhythm', true, { keep: true, hint: 'drums, pulse and patterned bass' }),
-      R('bpm', 'Tempo', 40, 140, 72, { step: 1, fmt: (v) => `${v} bpm`, gen: [52, 96] }),
+      R('bpm', 'Tempo', 40, 190, 72, { step: 1, fmt: (v) => `${v} bpm`, gen: [52, 96] }),
       C('meter', 'Meter', Object.keys(METERS).map((m) => [m, m]), '4/4', { gen: ['4/4', '4/4', '3/4', '6/8', '5/4', '7/8'] }),
       R('swing', 'Swing', 0, 0.7, 0.1, { gen: [0, 0.35] }),
       R('humanize', 'Humanise', 0, 1, 0.35, { gen: [0.15, 0.6], hint: 'timing looseness' }),

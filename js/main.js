@@ -4,7 +4,7 @@ import { LAYERS, LAYER_BY_ID, GROUPS } from './layers/index.js';
 import { NOTE_NAMES, MODES } from './theory.js';
 import { GLOBAL_SECTIONS, GLOBAL_BY_ID, VISUAL_PARAMS, defaults, fill, randomize } from './params.js';
 import {
-  PALETTES, MOODS, STARTS, SECTIONS, generateScene, startScene, rerollSection, mutateScene,
+  PALETTES, MOODS, STARTS, SECTIONS, CADENCES, generateScene, startScene, rerollSection, mutateScene,
   encodeScene, decodeScene, normalize,
 } from './scenes.js';
 import { seeded, clamp, lerp } from './util.js';
@@ -25,7 +25,7 @@ const store = {
 };
 
 const prefs = Object.assign(
-  { volume: 0.85, journey: 0, breath: 'off', wake: false, mood: 'any', energy: null, filter: 'playing', quality: 'balanced' },
+  { volume: 0.85, journey: 0, breath: 'off', wake: false, mood: 'any', energy: null, filter: 'playing', quality: 'balanced', cadence: 165 },
   store.get('prefs', {}),
 );
 prefs.vp = fill(prefs.vp, VISUAL_PARAMS);
@@ -140,6 +140,7 @@ const orb = $('#orb');
 
 async function togglePlay() {
   if (engine.playing) {
+    keepAlive.pause();
     engine.pause();
     document.body.classList.remove('playing');
     orb.setAttribute('aria-label', 'Play');
@@ -154,6 +155,7 @@ async function togglePlay() {
     document.body.classList.add('started');
     engine.apply(state, { fade: 6 });
   }
+  keepAlive.play().catch(() => {});
   try {
     await engine.play();
   } catch (err) {
@@ -193,6 +195,35 @@ $('#btn-generate').addEventListener('click', (e) => {
   e.currentTarget.classList.toggle('spin');
   generate();
 });
+
+/* ─────────────────────────── running ─────────────────────────── */
+
+function startRun(cadence) {
+  prefs.cadence = cadence;
+  applyScene(generateScene(newSeed(), { mood: 'run', energy: 0.9, bpm: cadence, rhythm: 'force' }), { fade: 2 });
+  if (!started || !engine.playing) togglePlay();
+  toast(`Running at ${cadence} steps a minute`);
+}
+
+/*
+ * iOS suspends Web Audio when the screen locks unless the page is also
+ * playing a media element. A looping second of silence keeps the playback
+ * session alive (and gives the lock screen its controls) at almost no cost.
+ */
+const keepAlive = (() => {
+  const sr = 8000, n = sr;
+  const buf = new ArrayBuffer(44 + n * 2);
+  const v = new DataView(buf);
+  const w = (o, str) => [...str].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  w(36, 'data'); v.setUint32(40, n * 2, true);
+  const a = new Audio(URL.createObjectURL(new Blob([buf], { type: 'audio/wav' })));
+  a.loop = true;
+  a.setAttribute('playsinline', '');
+  return a;
+})();
 
 /* ─────────────────────────── rhythm mode ─────────────────────────── */
 
@@ -479,6 +510,11 @@ function renderCreate(el) {
   const rh = section('Rhythm', 'Random follows this');
   rh.append(chips([{ value: true, label: 'With rhythm' }, { value: false, label: 'Without' }], !!state.g.beat, (v) => setRhythm(v)));
   el.append(rh);
+
+  const run = section('Running', 'steps per minute');
+  run.append(h('p', 'note', 'A steady beat to run to: kick on every step, hats in between, locked to your cadence for the whole run. Most runners land between <b>160 and 180</b>.'));
+  run.append(chips(CADENCES.map((c) => ({ value: c, label: String(c) })), state.mood === 'run' ? state.g.bpm : null, (v) => startRun(v), 'scroll'));
+  el.append(run);
 
   const mood = section('Mood');
   mood.append(chips([{ value: 'any', label: 'Any' }, ...MOODS.map((m) => ({ value: m.id, label: m.name }))], prefs.mood, (v) => { prefs.mood = v; save(); }, 'scroll'));
@@ -897,4 +933,4 @@ applyVisualPrefs();
 applyScene(state, { animate: false });
 bumpIdle();
 
-window.genbient = { engine, visuals, get state() { return state; }, applyScene, generateScene, LAYER_BY_ID, GLOBAL_BY_ID, defaults };
+window.genbient = { engine, visuals, keepAlive, get state() { return state; }, applyScene, generateScene, LAYER_BY_ID, GLOBAL_BY_ID, defaults };
