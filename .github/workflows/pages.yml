@@ -2,7 +2,7 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [main, master, claude/procedural-ambience-creator-l2dxgb]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
