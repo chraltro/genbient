@@ -1,5 +1,6 @@
 import { Engine } from './engine.js';
 import { Conductor } from './conductor.js';
+import { Recorder } from './recorder.js';
 import { Visuals } from './visuals.js';
 import { LAYERS, LAYER_BY_ID, GROUPS } from './layers/index.js';
 import { NOTE_NAMES, MODES } from './theory.js';
@@ -26,7 +27,7 @@ const store = {
 };
 
 const prefs = Object.assign(
-  { volume: 0.85, journey: 0, breath: 'off', wake: false, mood: 'any', energy: null, filter: 'playing', quality: 'balanced', cadence: 165, runSong: true, runIntensity: 'steady', lite: false },
+  { volume: 0.85, journey: 0, breath: 'off', wake: false, mood: 'any', energy: null, filter: 'playing', quality: 'balanced', cadence: 165, runSong: true, runIntensity: 'steady', lite: false, recMax: 0, recFade: true, recLevel: true },
   store.get('prefs', {}),
 );
 prefs.vp = fill(prefs.vp, VISUAL_PARAMS);
@@ -200,6 +201,105 @@ $('#btn-generate').addEventListener('click', (e) => {
   e.currentTarget.classList.toggle('spin');
   generate();
 });
+
+/* ─────────────────────────── recording ─────────────────────────── */
+
+const recorder = new Recorder(engine);
+const recBtn = $('#btn-rec');
+let recTimer = null;
+let clip = null;
+
+const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+
+async function startRecording() {
+  if (!engine.playing) await togglePlay();
+  if (!engine.ctx || !engine.playing) return;
+  discardClip();
+  try {
+    await recorder.start();
+  } catch (err) {
+    console.error(err);
+    toast('Recording isn\'t available in this browser');
+    return;
+  }
+  recBtn.classList.add('rec');
+  document.body.classList.add('recording');
+  const limit = prefs.recMax || recorder.maxSeconds;
+  recTimer = setInterval(() => {
+    const s = recorder.seconds;
+    recBtn.textContent = mmss(s);
+    if (s >= limit) stopRecording();
+  }, 250);
+  recBtn.textContent = '0:00';
+  toast(prefs.recMax ? `Recording ${mmss(prefs.recMax)}` : 'Recording · tap again to stop');
+}
+
+async function stopRecording() {
+  if (!recorder.recording) return;
+  clearInterval(recTimer);
+  await recorder.stop();
+  recBtn.classList.remove('rec');
+  document.body.classList.remove('recording');
+  recBtn.textContent = 'Rec';
+  const secs = recorder.seconds;
+  if (secs < 1) { toast('Too short to keep'); return; }
+  const blob = recorder.toWav({
+    normalize: prefs.recLevel, fade: prefs.recFade,
+    title: state.name, comment: `Recreate this scene: ${location.origin}${location.pathname}#s=${encodeScene(state)}`,
+  });
+  const safe = state.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+  clip = { blob, name: `genbient-${safe}-${stamp}.wav`, secs };
+  $('#clip-meta').textContent = `${mmss(secs)} · WAV · ${(blob.size / 1048576).toFixed(1)} MB`;
+  $('#clip').hidden = false;
+}
+
+async function saveClip() {
+  if (!clip) return;
+  const file = new File([clip.blob], clip.name, { type: 'audio/wav' });
+  // phones: share sheet (Files, AirDrop, Mail); computers: a normal download
+  if (matchMedia('(pointer: coarse)').matches && navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: state.name });
+      return;
+    } catch (e) {
+      if (e && e.name === 'AbortError') return;
+    }
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(clip.blob);
+  a.download = clip.name;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  toast('Clip saved');
+}
+
+function discardClip() {
+  clip = null;
+  $('#clip').hidden = true;
+}
+
+recBtn.addEventListener('click', () => (recorder.recording ? stopRecording() : startRecording()));
+$('#clip-save').addEventListener('click', saveClip);
+$('#clip-discard').addEventListener('click', discardClip);
+
+function recordSection() {
+  const sec = section('Record a clip', 'lossless WAV');
+  sec.append(h('p', 'note', 'Tap <b>Rec</b> at the top to record what\'s playing. You get a lossless WAV that opens in any podcast editor. The phone\'s volume doesn\'t affect the recording.'));
+  const len = h('div', 'choice');
+  len.append(h('span', 'choice-label', 'Stop after'));
+  len.append(chips([[0, 'When I tap'], [30, '30 s'], [60, '1 min'], [120, '2 min'], [300, '5 min']].map(([v, l]) => ({ value: v, label: l })), prefs.recMax, (v) => { prefs.recMax = v; save(); }));
+  sec.append(len);
+  const tog = (key, label, sub) => {
+    const row = h('button', 'toggle-row small', `<span><b>${label}</b><small>${sub}</small></span><span class="switch${prefs[key] ? ' on' : ''}"></span>`);
+    row.addEventListener('click', () => { prefs[key] = !prefs[key]; row.querySelector('.switch').classList.toggle('on', prefs[key]); save(); });
+    return row;
+  };
+  sec.append(tog('recFade', 'Fade in and out', '1.5 seconds at each end'), tog('recLevel', 'Even out the level', 'loudest moment at −1 dB'));
+  return sec;
+}
 
 /* ─────────────────────────── running ─────────────────────────── */
 
@@ -846,6 +946,7 @@ function renderMusic(el) {
 
 function renderSound(el) {
   el.append(head('Sound', 'space, colour, touch'));
+  el.append(recordSection());
   const vol = section('Volume');
   vol.append(control({ id: 'volume', label: 'Master', type: 'range', min: 0, max: 1, step: 0.01, fmt: (v) => `${Math.round(v * 100)}%` },
     prefs.volume, (v) => { prefs.volume = v; engine.setVolume(v); save(); }));
@@ -1101,4 +1202,4 @@ applyVisualPrefs();
 applyScene(state, { animate: false });
 bumpIdle();
 
-window.genbient = { prefs, engine, visuals, keepAlive, conductor, get state() { return state; }, applyScene, generateScene, LAYER_BY_ID, GLOBAL_BY_ID, defaults };
+window.genbient = { prefs, recorder, engine, visuals, keepAlive, conductor, get state() { return state; }, applyScene, generateScene, LAYER_BY_ID, GLOBAL_BY_ID, defaults };
