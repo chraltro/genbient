@@ -26,7 +26,7 @@ const store = {
 };
 
 const prefs = Object.assign(
-  { volume: 0.85, journey: 0, breath: 'off', wake: false, mood: 'any', energy: null, filter: 'playing', quality: 'balanced', cadence: 165, runSong: true, runIntensity: 'steady' },
+  { volume: 0.85, journey: 0, breath: 'off', wake: false, mood: 'any', energy: null, filter: 'playing', quality: 'balanced', cadence: 165, runSong: true, runIntensity: 'steady', lite: false },
   store.get('prefs', {}),
 );
 prefs.vp = fill(prefs.vp, VISUAL_PARAMS);
@@ -156,6 +156,7 @@ async function togglePlay() {
   if (!started) {
     started = true;
     document.body.classList.add('started');
+    engine.setLite(prefs.lite);
     engine.apply(state, { fade: 6 });
     syncConductor(true);
   }
@@ -379,6 +380,8 @@ const keepAlive = (() => {
   const a = new Audio(URL.createObjectURL(new Blob([buf], { type: 'audio/wav' })));
   a.loop = true;
   a.setAttribute('playsinline', '');
+  // if the system pauses it (a call, CarPlay handing over), pick it back up
+  a.addEventListener('pause', () => { if (engine.playing) setTimeout(() => a.play().catch(() => {}), 500); });
   return a;
 })();
 
@@ -886,6 +889,14 @@ function renderSound(el) {
     save();
   }));
   perf.append(h('p', 'note', 'Saver draws fewer lines at 20 frames a second. The sound is the same.'));
+  const lite = h('button', 'toggle-row', `<span><b>Lighter audio</b><small>shorter reverb, no chorus, leaner strings · try this if sound stutters in the car or on an older phone</small></span><span class="switch${prefs.lite ? ' on' : ''}"></span>`);
+  lite.addEventListener('click', () => {
+    prefs.lite = !prefs.lite;
+    lite.querySelector('.switch').classList.toggle('on', prefs.lite);
+    engine.setLite(prefs.lite);
+    save();
+  });
+  perf.append(lite);
   el.append(perf);
 }
 
@@ -1090,4 +1101,4 @@ applyVisualPrefs();
 applyScene(state, { animate: false });
 bumpIdle();
 
-window.genbient = { engine, visuals, keepAlive, conductor, get state() { return state; }, applyScene, generateScene, LAYER_BY_ID, GLOBAL_BY_ID, defaults };
+window.genbient = { prefs, engine, visuals, keepAlive, conductor, get state() { return state; }, applyScene, generateScene, LAYER_BY_ID, GLOBAL_BY_ID, defaults };

@@ -193,7 +193,7 @@ export class Strings extends Sustained {
     vib.start(t);
     const srcs = [vib];
     const nodes = [out, lp, hp, body, vib, vibG];
-    const players = 1 + Math.round(p.ensemble * 2);
+    const players = this.e.lite ? 1 : 1 + Math.round(p.ensemble * 2);
     const norm = 0.16 / Math.sqrt(notes.length * players);
     notes.forEach((m, i) => {
       const f = h.freq(m);

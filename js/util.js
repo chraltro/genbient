@@ -73,7 +73,7 @@ export function osc(ctx, type, freq, detune = 0) {
   const o = ctx.createOscillator();
   if (typeof type === 'string') o.type = type;
   else o.setPeriodicWave(type);
-  o.frequency.value = freq;
+  o.frequency.value = Math.min(freq, ctx.sampleRate / 2 - 200); // high overtones stay in range
   o.detune.value = detune;
   return o;
 }

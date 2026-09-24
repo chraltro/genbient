@@ -7,7 +7,11 @@ import { accent } from './composer.js';
 import { Touch } from './touch.js';
 import { clamp, lerp, rand, chance, pick, glide, gain, filter, makePanner, osc } from './util.js';
 
+// How far ahead the scheduler writes notes. It grows on its own when the
+// timer that drives it starts waking up late (a locked phone, CarPlay, a busy
+// page), so late wake-ups never become gaps in the music.
 const LOOKAHEAD = 1.4;
+const MAX_LOOKAHEAD = 8;
 
 function makeNoise(ctx, seconds = 6) {
   const len = Math.floor(ctx.sampleRate * seconds);
@@ -209,6 +213,13 @@ export class Engine {
     this.nextEvolveAt = ctx.currentTime + 30;
     this.applyGlobals(true);
     this.startClock();
+    ctx.onstatechange = () => {
+      if (this.playing && ctx.state !== 'running' && ctx.state !== 'closed') {
+        clearTimeout(this.recoverTimer);
+        this.recoverTimer = setTimeout(() => ctx.resume().catch(() => {}), 300);
+      }
+      this.emit('state', ctx.state);
+    };
   }
 
   startClock() {
@@ -230,8 +241,17 @@ export class Engine {
     const ctx = this.ctx;
     if (!ctx || ctx.state !== 'running') return;
     const now = ctx.currentTime;
-    const horizon = now + LOOKAHEAD;
-    if (this.nextStep < now - 0.3) this.nextStep = now + 0.05;
+    const wall = performance.now();
+    if (this.lastWake) {
+      const gap = (wall - this.lastWake) / 1000;
+      // remember the worst recent wake-up gap, forgetting it slowly (~minutes)
+      this.worstGap = Math.max(gap, (this.worstGap || 0) * 0.998);
+    }
+    this.lastWake = wall;
+    const hidden = typeof document !== 'undefined' && document.hidden;
+    this.lookahead = clamp(Math.max(LOOKAHEAD, (this.worstGap || 0) * 3, hidden ? 6 : 0), LOOKAHEAD, MAX_LOOKAHEAD);
+    const horizon = now + this.lookahead;
+    if (this.nextStep < now - 0.3) { this.nextStep = now + 0.05; this.gaps = (this.gaps || 0) + 1; }
 
     let guard = 0;
     while (this.nextStep < horizon && guard++ < 256) this.runStep();
@@ -402,7 +422,7 @@ export class Engine {
       glide(this.wowG.gain, g.wow * 0.0025, t, tc);
       glide(this.flutG.gain, g.wow * 0.00025, t, tc);
     }
-    if (is('chorus')) glide(this.chWet.gain, g.chorus * 0.8, t, tc);
+    if (is('chorus')) glide(this.chWet.gain, this.lite ? 0 : g.chorus * 0.8, t, tc);
     if (is('revMix')) glide(this.revOut.gain, 0.1 + g.revMix * 1.2, t, tc);
     if (is('revPre')) glide(this.pre.delayTime, g.revPre * 0.15, t, tc);
     if (is('revSize', 'revDamp')) this.rebuildReverb(immediate);
@@ -431,7 +451,7 @@ export class Engine {
       const a = this.convs[this.revActive], b = this.convs[next];
       // Convolution is the most expensive thing in the graph: keep the
       // impulse modest and only ever run one reverb once a crossfade ends.
-      b.c.buffer = makeImpulse(this.ctx, 1.2 + revSize * 4.8, revDamp);
+      b.c.buffer = makeImpulse(this.ctx, 1.2 + (this.lite ? Math.min(revSize, 0.3) : revSize) * 4.8, revDamp);
       if (!b.live) { this.pre.connect(b.c); b.live = true; }
       const t = this.ctx.currentTime;
       glide(b.g.gain, 1, t, immediate ? 0.01 : 0.4);
@@ -469,6 +489,16 @@ export class Engine {
       if (scene.layers[id] && scene.layers[id].on) l.enable(fade);
       else l.disable(fade);
     }
+  }
+
+  // Lighter audio: shorter reverb, no chorus, lean ensembles. For older
+  // phones, car stereos and long runs on battery.
+  setLite(on) {
+    this.lite = on;
+    if (!this.ctx) return;
+    this.revKey = null;
+    this.rebuildReverb(false);
+    this.applyGlobals(false, 'chorus');
   }
 
   async play() {
