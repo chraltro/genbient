@@ -101,6 +101,7 @@ export class Engine {
     this.lowcut = filter(ctx, 'highpass', 30, 0.7);
     this.tone = filter(ctx, 'lowpass', 12000, 0.5);
     this.sculpt = filter(ctx, 'lowpass', 20000, 0.5);
+    this.arr = filter(ctx, 'lowpass', 20000, 0.8); // swept by the running arranger
     this.warm = ctx.createWaveShaper();
     this.warm.oversample = 'none';
     this.warmOut = gain(ctx, 1);
@@ -139,7 +140,7 @@ export class Engine {
     this.comp.attack.value = 0.03;
     this.comp.release.value = 0.5;
     this.master = gain(ctx, 0);
-    this.mix.connect(this.lowcut).connect(this.tone).connect(this.sculpt).connect(this.warm).connect(this.warmOut)
+    this.mix.connect(this.lowcut).connect(this.tone).connect(this.sculpt).connect(this.arr).connect(this.warm).connect(this.warmOut)
       .connect(this.wow).connect(this.chIn);
     this.chOut.connect(this.drive).connect(this.comp).connect(this.master).connect(ctx.destination);
 
@@ -261,6 +262,7 @@ export class Engine {
     let chordStart = false;
     if (sib === 0) {
       this.bar++;
+      this.emit('bar', { bar: this.bar, t: this.nextStep, dur: m.steps * dur, beat: m.groups[0] * dur, step: dur });
       // in half-time a musical bar spans two drum bars
       const cb = this.g.chordBars * (this.g.halfTime ? 2 : 1);
       if (this.bar > 0 && this.bar % cb === 0) {
@@ -295,6 +297,9 @@ export class Engine {
 
   // Humanised time: never early, a little late.
   human(t) { return t + Math.random() * this.g.humanize * 0.02; }
+
+  // In half-time (running) all musical events snap to the beat grid.
+  get locked() { return !!this.g.halfTime; }
 
   nextBeat(t) {
     const dur = this.stepDur;

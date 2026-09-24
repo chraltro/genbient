@@ -69,7 +69,8 @@ export class Layer {
     for (const k in p) if (this.p[k] !== p[k]) this.set(k, p[k]);
   }
 
-  enable(fade = 4) {
+  // `at` lets an arrangement bring a layer in exactly on a bar line.
+  enable(fade = 4, at = this.now) {
     clearTimeout(this.stopTimer);
     this.on = true;
     if (!this.running) {
@@ -77,20 +78,21 @@ export class Layer {
       this.nextT = null;
       this.start(this.now + 0.05);
     }
-    glide(this.bus.gain, this.level, this.now, fade / 3);
+    glide(this.bus.gain, this.level, Math.max(at, this.now), fade / 3);
   }
 
-  disable(fade = 3) {
+  disable(fade = 3, at = this.now) {
     if (!this.on) return;
     this.on = false;
-    glide(this.bus.gain, 0, this.now, fade / 4);
+    const start = Math.max(at, this.now);
+    glide(this.bus.gain, 0, start, fade / 4);
     clearTimeout(this.stopTimer);
     this.stopTimer = setTimeout(() => {
       if (!this.on && this.running) {
         this.running = false;
         this.stop();
       }
-    }, fade * 1000 + 2000);
+    }, (start - this.now + fade) * 1000 + 2000);
   }
 
   // Poisson-style free-time event loop.

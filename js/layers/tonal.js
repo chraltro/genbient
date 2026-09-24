@@ -327,7 +327,7 @@ export class Shimmer extends Layer {
   ];
   interval() { return Math.max(0.3, -Math.log(1 - Math.random() * 0.999) * lerp(7, 1, this.dens)); }
   schedule(now, horizon) {
-    this.events(now, horizon, () => this.interval(), (t) => this.glint(t));
+    this.events(now, horizon, () => this.interval(), (t) => this.glint(this.e.locked ? this.e.nextBeat(t) : t));
   }
   glint(t) {
     const { ctx, h, p } = this;
@@ -340,7 +340,8 @@ export class Shimmer extends Layer {
     const o1 = osc(ctx, 'sine', f);
     const o2 = osc(ctx, 'sine', f * 2.002);
     const g2 = gain(ctx, p.harm * 0.6);
-    const trem = osc(ctx, 'sine', rand(3, 8));
+    // when locked to the beat, the glint flutters in time too
+    const trem = osc(ctx, 'sine', this.e.locked ? (this.g.bpm / 60) * pick([1, 2]) : rand(3, 8));
     const tg = gain(ctx, p.sparkle * 0.5);
     const tn = gain(ctx, 1 - p.sparkle * 0.5);
     trem.connect(tg).connect(tn.gain);

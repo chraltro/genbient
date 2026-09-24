@@ -290,7 +290,7 @@ export class Bowls extends Layer {
   interval() { return lerp(34, 6, this.dens) * rand(0.6, 1.4); }
   schedule(now, horizon) {
     this.events(now, horizon, () => this.interval(), (t) => {
-      if (chance(this.p.quant)) t = this.e.nextBeat(t);
+      if (this.e.locked || chance(this.p.quant)) t = this.e.nextBeat(t);
       this.strike(t, rand(0.7, 1));
     });
   }

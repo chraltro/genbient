@@ -1,4 +1,5 @@
 import { Engine } from './engine.js';
+import { Conductor } from './conductor.js';
 import { Visuals } from './visuals.js';
 import { LAYERS, LAYER_BY_ID, GROUPS } from './layers/index.js';
 import { NOTE_NAMES, MODES } from './theory.js';
@@ -25,7 +26,7 @@ const store = {
 };
 
 const prefs = Object.assign(
-  { volume: 0.85, journey: 0, breath: 'off', wake: false, mood: 'any', energy: null, filter: 'playing', quality: 'balanced', cadence: 165 },
+  { volume: 0.85, journey: 0, breath: 'off', wake: false, mood: 'any', energy: null, filter: 'playing', quality: 'balanced', cadence: 165, runSong: true, runIntensity: 'steady' },
   store.get('prefs', {}),
 );
 prefs.vp = fill(prefs.vp, VISUAL_PARAMS);
@@ -108,6 +109,7 @@ function applyScene(next, { fade = 5, animate = true } = {}) {
   else engine.g = { ...engine.g, ...state.g };
   renderTitle(animate);
   renderRhythm();
+  syncConductor(true);
   renderRunbar();
   updateMediaSession();
   if (openName) renderSheet();
@@ -155,6 +157,7 @@ async function togglePlay() {
     started = true;
     document.body.classList.add('started');
     engine.apply(state, { fade: 6 });
+    syncConductor(true);
   }
   keepAlive.play().catch(() => {});
   try {
@@ -200,6 +203,48 @@ $('#btn-generate').addEventListener('click', (e) => {
 /* ─────────────────────────── running ─────────────────────────── */
 
 const running = () => state.mood === 'run';
+let currentSection = null;
+
+// The arranger turns a running scene into an evolving song.
+const conductor = new Conductor(engine, {
+  get state() { return state; },
+  setLayer(id, on, p, fade, at) {
+    const ls = state.layers[id];
+    if (p) Object.assign(ls.p, p);
+    ls.on = on;
+    if (!started) return;
+    const l = engine.layers[id];
+    if (p) l.setAll(ls.p);
+    if (on) l.enable(fade, at); else l.disable(fade, at);
+  },
+  onSection(info) {
+    currentSection = info;
+    renderRunbar();
+    renderMeta();
+    if (openName === 'layers') renderSheet();
+    save();
+  },
+  onKey() {
+    state.root = engine.harmony.root;
+    renderMeta();
+  },
+});
+
+function syncConductor(restart) {
+  const want = started && running() && prefs.runSong;
+  conductor.intensity = prefs.runIntensity;
+  if (want) {
+    // running is strict about time: straight, tight, echoes on the grid
+    if (state.g.swing) setGlobal('swing', 0);
+    if (state.g.humanize > 0.02) setGlobal('humanize', 0.02);
+    if (![0.25, 0.5, 1, 2].includes(state.g.dlyDiv)) setGlobal('dlyDiv', 0.5);
+    if (!state.g.halfTime) setGlobal('halfTime', true);
+  }
+  // a full running band needs a little more headroom than an ambient bed
+  if (engine.ctx) engine.drive.gain.setTargetAtTime(want ? 0.75 : 0.95, engine.ctx.currentTime, 0.5);
+  if (want && (restart || !conductor.active)) conductor.start();
+  else if (!want && conductor.active) conductor.stop();
+}
 const cadenceViews = new Set();
 
 // Changing cadence only changes the tempo. From an ambient scene, the first
@@ -247,7 +292,12 @@ function cadenceControl() {
 function renderRunbar() {
   const bar = $('#runbar');
   bar.hidden = !running();
-  if (running() && !bar.firstChild) bar.append(cadenceControl());
+  if (running() && !bar.firstChild) {
+    bar.append(cadenceControl());
+    const lab = h('span', 'section-label');
+    bar.append(lab);
+    cadenceViews.add(() => { lab.textContent = conductor.active && currentSection ? currentSection.name.toLowerCase() : prefs.runSong ? '' : 'steady loop'; });
+  }
   cadenceViews.forEach((f) => { if (f) f(); });
 }
 
@@ -276,11 +326,33 @@ function runSection() {
   tap.addEventListener('click', () => tapStep(tap.querySelector('small')));
   run.append(tap);
   run.append(chips(CADENCES.map((c) => ({ value: c, label: String(c) })), running() ? state.g.bpm : null, (v) => setCadence(v), 'scroll'));
+  const arr = h('div', 'choice');
+  arr.append(h('span', 'choice-label', 'Arrangement'));
+  arr.append(chips([{ value: true, label: 'Evolving song' }, { value: false, label: 'Steady loop' }], prefs.runSong, (v) => {
+    prefs.runSong = v;
+    syncConductor(false);
+    if (!v) toast('Steady loop: everything stays as it is');
+    renderRunbar();
+    save();
+  }));
+  arr.append(h('p', 'note', 'Evolving: instruments take turns, drums change pattern, breakdowns and builds come and go. The kick stays on every step throughout.'));
+  run.append(arr);
+  const inten = h('div', 'choice');
+  inten.append(h('span', 'choice-label', 'Intensity'));
+  inten.append(chips([{ value: 'easy', label: 'Easy' }, { value: 'steady', label: 'Steady' }, { value: 'push', label: 'Push' }], prefs.runIntensity, (v) => {
+    prefs.runIntensity = v;
+    conductor.intensity = v;
+    save();
+  }));
+  run.append(inten);
   if (running()) {
     const row = h('div', 'row-btns');
     row.style.marginTop = '12px';
     const fresh = h('button', 'btn', 'New music, same beat');
     fresh.addEventListener('click', newRunMusic);
+    const nextSec = h('button', 'btn', 'Next section');
+    nextSec.addEventListener('click', () => { conductor.skip(); toast('Moving on at the next bar'); });
+    if (prefs.runSong) row.append(nextSec);
     const stop = h('button', 'btn', 'End run');
     stop.addEventListener('click', endRun);
     row.append(fresh, stop);
@@ -908,7 +980,7 @@ setInterval(() => {
     }
     updateTimerStatus();
   }
-  if (engine.playing && prefs.journey && now - lastSceneChange > prefs.journey * 60000) {
+  if (engine.playing && prefs.journey && !conductor.active && now - lastSceneChange > prefs.journey * 60000) {
     applyScene(mutateScene(state, newSeed()), { fade: 10 });
   }
 }, 1000);
@@ -1018,4 +1090,4 @@ applyVisualPrefs();
 applyScene(state, { animate: false });
 bumpIdle();
 
-window.genbient = { engine, visuals, keepAlive, get state() { return state; }, applyScene, generateScene, LAYER_BY_ID, GLOBAL_BY_ID, defaults };
+window.genbient = { engine, visuals, keepAlive, conductor, get state() { return state; }, applyScene, generateScene, LAYER_BY_ID, GLOBAL_BY_ID, defaults };

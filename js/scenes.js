@@ -138,7 +138,9 @@ function makeRunnable(g, layers, r, bpm) {
   g.pump = r.float(0.1, 0.3);
   // Harmony you can run to: one repeating four-chord loop, each chord held
   // for about twenty seconds, no key changes, no surprises.
-  Object.assign(g, { prog: 'loop', loopLen: 4, chordBars: 8, repetition: 1, modulate: 0, humanize: Math.min(g.humanize, 0.1) });
+  Object.assign(g, { prog: 'loop', loopLen: 4, chordBars: 8, repetition: 1, modulate: 0 });
+  // Everything on the step grid: no swing, no looseness, straight echoes.
+  Object.assign(g, { swing: 0, humanize: 0.02, dlyDiv: r.pick([0.5, 0.5, 1, 0.25]) });
   g.density = Math.min(g.density, 0.5);
   const on = (id, p) => { layers[id] = { on: true, p: { ...layers[id].p, ...p } }; };
   on('kick', { vol: 0.62, steps: 16, hits: 4, rotate: 0, prob: 1, ghost: 0, punch: r.float(0.5, 0.8), click: r.float(0.3, 0.6), decay: r.float(0.25, 0.4), pitch: r.float(46, 58) });
@@ -154,7 +156,6 @@ export function runify(state, cadence, seed) {
   next.mood = 'run';
   makeRunnable(next.g, next.layers, seeded(seed), cadence);
   // makeRunnable assumes a freshly generated scene; keep the user's other choices
-  next.g.swing = Math.min(next.g.swing, 0.05);
   return next;
 }
 
