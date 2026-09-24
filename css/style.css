@@ -66,6 +66,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .top-actions { display: flex; gap: 18px; }
 .text-btn { font: 500 12px/1 var(--mono); color: var(--ink-2); padding: 10px 0; }
 .text-btn.active, .text-btn:active { color: var(--ink); }
+#btn-rhythm[aria-pressed="false"] { color: var(--ink-3); }
 
 /* ─── title: left-aligned, like a record label ─── */
 .title { padding-top: 3vh; max-width: 30ch; transition: opacity 0.6s var(--ease), transform 0.6s var(--ease); }

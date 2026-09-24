@@ -288,6 +288,7 @@ export function euclidParams(d) {
 
 export class Drum extends Layer {
   onStep(info) {
+    if (!this.g.beat) return;
     const { steps, hits, rotate } = this.p;
     const key = `${steps}:${hits}:${rotate}`;
     if (key !== this.patKey) { this.pat = euclid(steps, hits, rotate); this.patKey = key; }

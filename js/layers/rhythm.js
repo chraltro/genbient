@@ -144,7 +144,7 @@ export class Heartbeat extends Layer {
     R('decay', 'Length', 0.2, 1.4, 0.7, { fmt: sec }),
   ];
   onStep(info) {
-    if (accent(info.sib, info.groups) < 0.8) return;
+    if (!this.g.beat || accent(info.sib, info.groups) < 0.8) return;
     this.beat = info.sib === 0 ? 0 : (this.beat ?? 0) + 1;
     const every = this.p.every;
     if (every === 4 ? info.sib !== 0 : this.beat % every !== 0) return;

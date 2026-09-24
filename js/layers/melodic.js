@@ -177,6 +177,7 @@ export class Marimba extends Melodic {
     R('decay', 'Decay', 0.2, 2, 0.8, { fmt: sec }),
   ];
   onStep(info) {
+    if (!this.g.beat && this.p.style === 'euclid') return this.sparseStep(info);
     if (this.p.style !== 'euclid') return super.onStep(info);
     const pat = euclid(info.spb, Math.min(this.p.hits, info.spb), this.p.rotate);
     if (!pat[info.sib] || !chance(0.5 + this.dens * 0.5)) return;

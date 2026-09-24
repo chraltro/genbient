@@ -376,7 +376,7 @@ export class Bass extends Layer {
     const len = (steps) => steps * info.dur * p.length;
     const root = h.chord.bass;
     let deg = null, steps = 4;
-    switch (p.pattern) {
+    switch (this.g.beat ? p.pattern : 'held') {
       case 'held':
         if (info.chordStart) { deg = root; steps = info.spb * this.g.chordBars; }
         break;

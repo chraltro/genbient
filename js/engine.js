@@ -273,7 +273,7 @@ export class Engine {
       spb: m.steps, groups: m.groups, dur, chordStart,
     };
     this.stepT = this.nextStep;
-    if (this.g.pump > 0 && accent(sib, m.groups) >= 0.8 && !this.layers.kick.on) this.duck(info.t, 0.8);
+    if (this.g.beat && this.g.pump > 0 && accent(sib, m.groups) >= 0.8 && !this.layers.kick.on) this.duck(info.t, 0.8);
     for (const id in this.layers) {
       const l = this.layers[id];
       if (l.running) {

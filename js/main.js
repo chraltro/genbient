@@ -107,6 +107,7 @@ function applyScene(next, { fade = 5, animate = true } = {}) {
   if (started) engine.apply(state, { fade });
   else engine.g = { ...engine.g, ...state.g };
   renderTitle(animate);
+  renderRhythm();
   updateMediaSession();
   if (openName) renderSheet();
   save();
@@ -184,7 +185,7 @@ document.addEventListener('visibilitychange', () => {
 
 function generate() {
   const mood = prefs.mood === 'any' ? undefined : prefs.mood;
-  applyScene(generateScene(newSeed(), { mood, energy: prefs.energy ?? undefined }));
+  applyScene(generateScene(newSeed(), { mood, energy: prefs.energy ?? undefined, rhythm: state.g.beat ? undefined : false }));
   if (!started) togglePlay();
 }
 
@@ -192,6 +193,32 @@ $('#btn-generate').addEventListener('click', (e) => {
   e.currentTarget.classList.toggle('spin');
   generate();
 });
+
+/* ─────────────────────────── rhythm mode ─────────────────────────── */
+
+const rhythmBtn = $('#btn-rhythm');
+function renderRhythm() {
+  rhythmBtn.textContent = state.g.beat ? 'Rhythm on' : 'Rhythm off';
+  rhythmBtn.setAttribute('aria-pressed', String(!!state.g.beat));
+}
+
+// Off: drums and heartbeat fall silent, bass holds, and Random makes
+// beatless scenes. On: if this scene never had drums, give it some.
+function setRhythm(on) {
+  state.g.beat = on;
+  engine.setGlobal('beat', on);
+  renderRhythm();
+  const hasDrums = LAYERS.some((d) => d.group === 'rhythm' && state.layers[d.id].on);
+  if (on && !hasDrums) {
+    const next = rerollSection(state, 'rhythm', newSeed(), { rhythm: 'force', energy: Math.max(state.energy, 0.55) });
+    next.name = state.name;
+    next.tagline = state.tagline;
+    applyScene(next, { fade: 3, animate: false });
+  } else if (openName) renderSheet();
+  toast(on ? 'Rhythm on' : 'Rhythm off');
+  save();
+}
+rhythmBtn.addEventListener('click', () => setRhythm(!state.g.beat));
 
 /* ─────────────────────────── touch: the screen is an instrument ─────────────────────────── */
 
@@ -419,6 +446,7 @@ function control(p, value, onChange, key) {
 }
 
 function setGlobal(id, v) {
+  if (id === 'beat') return setRhythm(v);
   state.g[id] = v;
   engine.setGlobal(id, v);
   if (id === 'bpm' || id === 'meter') renderMeta();
@@ -441,12 +469,16 @@ function globalSection(sec, el, { dice = true } = {}) {
 /* ─── Create ─── */
 
 function renderCreate(el) {
-  el.append(head('Create', `seed ${state.seed || '–'}`));
+  el.append(head('Scenes', `seed ${state.seed || '–'}`));
 
-  const gen = h('button', 'primary', 'Generate a new scene<span>or tap New</span>');
+  const gen = h('button', 'primary', 'Random scene');
   gen.addEventListener('click', generate);
   el.append(gen);
-  el.append(h('p', 'note', 'Every scene is built from a seed: layers, harmony, rhythm, sound and colour. Mood and energy steer it.'));
+  el.append(h('p', 'note', 'Every scene is built from a seed: layers, harmony, rhythm, sound and colour. Mood, energy and rhythm steer it.'));
+
+  const rh = section('Rhythm', 'Random follows this');
+  rh.append(chips([{ value: true, label: 'With rhythm' }, { value: false, label: 'Without' }], !!state.g.beat, (v) => setRhythm(v)));
+  el.append(rh);
 
   const mood = section('Mood');
   mood.append(chips([{ value: 'any', label: 'Any' }, ...MOODS.map((m) => ({ value: m.id, label: m.name }))], prefs.mood, (v) => { prefs.mood = v; save(); }, 'scroll'));
@@ -531,7 +563,7 @@ function renderLayers(el) {
 function layerCard(def, hd, count) {
   const ls = state.layers[def.id];
   const row = h('div', 'layer' + (ls.on ? ' on' : '') + (expanded.has(def.id) ? ' open' : ''));
-  const groupName = GROUPS.find((g) => g.id === def.group).name;
+  const groupName = GROUPS.find((g) => g.id === def.group).name + (def.group === 'rhythm' && !state.g.beat ? ' · rhythm off' : '');
   const tg = h('button', 'layer-toggle', `<span class="dot"></span><span class="layer-name">${esc(def.name)}<small>${groupName.toLowerCase()}${def.id === 'binaural' ? ' · headphones' : ''}</small></span><span class="switch"></span>`);
   tg.setAttribute('aria-pressed', String(ls.on));
   tg.addEventListener('click', () => {

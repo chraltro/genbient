@@ -82,7 +82,7 @@ function layerParams(def, r, vol) {
   return p;
 }
 
-function chooseLayers(r, mood, energy) {
+function chooseLayers(r, mood, energy, rhythmMode) {
   const likes = mood.likes;
   const chosen = new Set();
   const w = (id) => likes[id] || 0.3;
@@ -93,9 +93,14 @@ function chooseLayers(r, mood, energy) {
   if (r.chance(0.45)) chosen.add(r.weighted(anchors, anchors.map((id) => w(id))));
 
   const rhythm = byGroup('rhythm');
-  if (r.chance(clamp(energy * 1.3, 0, 0.95))) {
+  if (rhythmMode !== false && (rhythmMode === 'force' || r.chance(clamp(energy * 1.3, 0, 0.95)))) {
     const n = 1 + Math.round(energy * 2.2 * r.float(0.5, 1));
-    for (let i = 0; i < n; i++) chosen.add(r.weighted(rhythm, rhythm.map((id) => w(id))));
+    const pool = [...rhythm];
+    for (let i = 0; i < n && pool.length; i++) {
+      const id = r.weighted(pool, pool.map((x) => w(x)));
+      chosen.add(id);
+      pool.splice(pool.indexOf(id), 1);
+    }
     if (energy > 0.5 && r.chance(0.7)) chosen.add('bass');
   }
   const melody = byGroup('melody');
@@ -126,7 +131,8 @@ export function generateScene(seed, opts = {}) {
   const g = randomize(GLOBAL_PARAMS, r, defaults(GLOBAL_PARAMS));
   applyMoodBias(g, mood, r, energy);
 
-  const chosen = chooseLayers(r, mood, energy);
+  const chosen = chooseLayers(r, mood, energy, opts.rhythm);
+  g.beat = opts.rhythm !== false;
   const layers = {};
   for (const def of LAYERS) {
     if (!chosen.has(def.id)) { layers[def.id] = offLayer(def); continue; }
@@ -169,8 +175,8 @@ export const SECTIONS = [
 
 const secIds = (id) => (GLOBAL_SECTIONS.find((s) => s.id === id)?.params || []).map((p) => p.id);
 
-export function rerollSection(state, section, seed) {
-  const fresh = generateScene(seed, { mood: state.mood, energy: state.energy });
+export function rerollSection(state, section, seed, opts = {}) {
+  const fresh = generateScene(seed, { mood: state.mood, energy: state.energy, rhythm: state.g.beat === false ? false : undefined, ...opts });
   const next = structuredClone(state);
   const copyG = (ids) => ids.forEach((id) => { next.g[id] = fresh.g[id]; });
   const copyGroup = (groups) => {
@@ -182,7 +188,7 @@ export function rerollSection(state, section, seed) {
       copyG(secIds('harmony'));
       break;
     case 'rhythm':
-      copyG(secIds('time'));
+      copyG(secIds('time').filter((id) => id !== 'beat'));
       copyGroup(['rhythm']);
       next.layers.bass = fresh.layers.bass;
       break;
@@ -215,7 +221,7 @@ export function mutateScene(s, seed) {
   const r = seeded(seed);
   const next = structuredClone(s);
   const on = LAYERS.filter((l) => next.layers[l.id].on).map((l) => l.id);
-  const off = LAYERS.filter((l) => !next.layers[l.id].on && l.id !== 'binaural').map((l) => l.id);
+  const off = LAYERS.filter((l) => !next.layers[l.id].on && l.id !== 'binaural' && !(l.group === 'rhythm' && next.g.beat === false)).map((l) => l.id);
   if (on.length > 2 && r.chance(0.7)) next.layers[r.pick(on)].on = false;
   if (off.length && (on.length < 5 || r.chance(0.5))) {
     const id = r.pick(off);
