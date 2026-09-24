@@ -4,22 +4,21 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
   <title>Genbient</title>
-  <meta name="description" content="Endless, procedurally generated ambient soundscapes for rest, focus and meditation. Everything is synthesised live in your browser.">
-  <meta name="theme-color" content="#030812">
-  <meta name="color-scheme" content="dark">
+  <meta name="description" content="A generative ambient instrument. Endless procedural soundscapes you can play with a finger, synthesised live in your browser.">
+  <meta name="theme-color" content="#0f1417">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Genbient">
   <meta property="og:title" content="Genbient">
-  <meta property="og:description" content="Endless generative soundscapes for rest and meditation.">
+  <meta property="og:description" content="A generative ambient instrument.">
   <meta property="og:image" content="icons/icon-512.png">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon-180.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400&family=Manrope:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;1,6..72,400&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -28,46 +27,35 @@
 
   <main id="app">
     <header class="top">
-      <div class="brand"><span class="brand-mark"></span>genbient</div>
-      <button class="icon-btn" id="btn-share" aria-label="Share this soundscape">
-        <svg viewBox="0 0 24 24"><path d="M12 15V3.5M7.5 8 12 3.5 16.5 8"/><path d="M5 12.5V18a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5.5"/></svg>
-      </button>
+      <span class="brand">Genbient</span>
+      <span class="top-actions">
+        <button class="text-btn" data-sheet="rest">Sleep</button>
+        <button class="text-btn" id="btn-share">Share</button>
+      </span>
     </header>
 
     <section class="title" id="title" aria-live="polite">
-      <h1 id="scene-name">Still Water</h1>
-      <p id="scene-tag" class="tag">slow tides under a sleeping sky</p>
-      <p id="scene-meta" class="meta">D Dorian</p>
+      <h1 id="scene-name">Genbient</h1>
+      <p id="scene-tag" class="tag"></p>
+      <p id="scene-meta" class="meta"></p>
     </section>
 
     <div class="stage">
       <button id="orb" class="orb" aria-label="Play">
-        <span class="orb-label" id="orb-label">begin</span>
+        <svg class="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z"/></svg>
+        <svg class="i-pause" viewBox="0 0 24 24"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>
       </button>
+      <span class="orb-label" id="orb-label">play</span>
       <p class="breath-text" id="breath-text" aria-live="polite"></p>
-      <p class="hint" id="hint">headphones recommended</p>
+      <p class="hint" id="hint">drag anywhere to play along · headphones help</p>
     </div>
 
     <nav class="dock" aria-label="Controls">
-      <button class="dock-btn" data-sheet="scenes">
-        <svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="2.2"/><rect x="13" y="4" width="7" height="7" rx="2.2"/><rect x="4" y="13" width="7" height="7" rx="2.2"/><rect x="13" y="13" width="7" height="7" rx="2.2"/></svg>
-        <span>Scenes</span>
-      </button>
-      <button class="dock-btn" data-sheet="layers">
-        <svg viewBox="0 0 24 24"><path d="M12 4 3.5 8.5 12 13l8.5-4.5L12 4Z"/><path d="m3.5 12.5 8.5 4.5 8.5-4.5"/><path d="m3.5 16.2 8.5 4.3 8.5-4.3" opacity=".55"/></svg>
-        <span>Layers</span>
-      </button>
-      <button class="dock-main" id="btn-generate" aria-label="Generate a new soundscape">
-        <svg viewBox="0 0 24 24"><path d="M12 2.8c.7 5 3.3 7.8 8.8 9.2-5.5 1.4-8.1 4.2-8.8 9.2-.7-5-3.3-7.8-8.8-9.2 5.5-1.4 8.1-4.2 8.8-9.2Z"/></svg>
-      </button>
-      <button class="dock-btn" data-sheet="tune">
-        <svg viewBox="0 0 24 24"><path d="M4 7h9M18 7h2M4 17h3M11 17h9"/><circle cx="15.5" cy="7" r="2.2"/><circle cx="8.5" cy="17" r="2.2"/></svg>
-        <span>Tune</span>
-      </button>
-      <button class="dock-btn" data-sheet="rest">
-        <svg viewBox="0 0 24 24"><path d="M19.5 14.6A8 8 0 1 1 9.4 4.5a6.4 6.4 0 0 0 10.1 10.1Z"/></svg>
-        <span>Rest</span>
-      </button>
+      <button class="dock-btn" data-sheet="create">Create</button>
+      <button class="dock-btn" data-sheet="layers">Layers</button>
+      <button class="dock-main" id="btn-generate" aria-label="Generate a new scene">New</button>
+      <button class="dock-btn" data-sheet="music">Music</button>
+      <button class="dock-btn" data-sheet="sound">Sound</button>
     </nav>
   </main>
 
@@ -79,7 +67,7 @@
 
   <div class="toast" id="toast" role="status"></div>
 
-  <noscript><p class="noscript">Genbient needs JavaScript to synthesise sound.</p></noscript>
+  <noscript><p class="noscript">Genbient needs JavaScript to make sound.</p></noscript>
   <script type="module" src="js/main.js"></script>
 </body>
 </html>

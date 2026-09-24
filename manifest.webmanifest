@@ -1,13 +1,13 @@
 {
   "name": "Genbient: generative soundscapes",
   "short_name": "Genbient",
-  "description": "Endless, procedurally generated ambient soundscapes for rest and meditation.",
+  "description": "A generative ambient instrument. Endless procedural soundscapes you can play with a finger.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#030812",
-  "theme_color": "#030812",
+  "background_color": "#0f1417",
+  "theme_color": "#0f1417",
   "icons": [
     { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
     { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },

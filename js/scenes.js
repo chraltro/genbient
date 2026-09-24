@@ -1,142 +1,213 @@
-// Curated scenes, colour palettes and the seeded scene generator.
-import { LAYERS } from './layers.js';
+// Procedural scene generation. A scene is the complete state of the
+// instrument; everything in it can be generated, rerolled per section,
+// mutated over time, and shared as a link.
+import { LAYERS, LAYER_BY_ID, TONAL_ANCHORS } from './layers/index.js';
 import { MODES } from './theory.js';
-import { seeded, clamp } from './util.js';
+import { GLOBAL_PARAMS, GLOBAL_SECTIONS, defaults, fill, randomize, pack, unpack } from './params.js';
+import { seeded, clamp, lerp } from './util.js';
 
+// Each palette is ink on a ground, plus one accent used sparingly.
 export const PALETTES = {
-  abyss:   { bg: ['#01060f', '#062235'], orbs: ['#0e6a86', '#173f9a', '#159c94', '#2b2f7a'], accent: '#8fe3f0' },
-  aurora:  { bg: ['#020910', '#08202a'], orbs: ['#18b07c', '#6040c0', '#2a86b0', '#0f7a5f'], accent: '#9ff5cc' },
-  dusk:    { bg: ['#10061a', '#2a0e2a'], orbs: ['#c24a72', '#e8904f', '#5e2a88', '#8e3060'], accent: '#ffbf98' },
-  forest:  { bg: ['#020c07', '#0b2215'], orbs: ['#2f8a4a', '#8aac3a', '#1d6a52', '#c9a64a'], accent: '#d2edaa' },
-  ember:   { bg: ['#0d0402', '#261006'], orbs: ['#d04a1e', '#f0942e', '#8a221a', '#b85e1e'], accent: '#ffca88' },
-  glacier: { bg: ['#040a14', '#10233c'], orbs: ['#5fa8e0', '#a9d8f4', '#3b6fc0', '#7fc6d8'], accent: '#e0f4ff' },
-  lotus:   { bg: ['#0e0512', '#26102c'], orbs: ['#d87aac', '#9a6ad8', '#f0a8bc', '#6a3a92'], accent: '#ffcce4' },
-  cosmos:  { bg: ['#03020c', '#100a2c'], orbs: ['#4a30c0', '#b83aa4', '#1f44a8', '#7c30dc'], accent: '#d4b4ff' },
-  sand:    { bg: ['#0e0904', '#2a1b0c'], orbs: ['#d0a060', '#b0703c', '#e8c890', '#80603c'], accent: '#f8dcb0' },
-  mist:    { bg: ['#06090b', '#18222a'], orbs: ['#6a9098', '#90a8b0', '#4a6e80', '#a8bcb4'], accent: '#e2eef0' },
-  night:   { bg: ['#01040e', '#081428'], orbs: ['#1c4078', '#246660', '#3c2c78', '#0f5078'], accent: '#b0ccff' },
+  slate: { name: 'Slate', bg: '#0f1417', ink: '#cdd6d6', accent: '#e0a458' },
+  tide:  { name: 'Tide',  bg: '#0b1419', ink: '#c6d8de', accent: '#6fb7c9' },
+  moss:  { name: 'Moss',  bg: '#11150f', ink: '#d0d6c2', accent: '#d9b44a' },
+  ember: { name: 'Ember', bg: '#161010', ink: '#e8d6c4', accent: '#e2583e' },
+  dusk:  { name: 'Dusk',  bg: '#15111a', ink: '#ddd0dc', accent: '#e8957a' },
+  sand:  { name: 'Sand',  bg: '#17130d', ink: '#eadcc4', accent: '#c8763a' },
+  fog:   { name: 'Fog',   bg: '#121516', ink: '#d4dadb', accent: '#9fb8a8' },
+  night: { name: 'Night', bg: '#0a0d14', ink: '#c4cbe0', accent: '#d8c07a' },
+  plum:  { name: 'Plum',  bg: '#120f17', ink: '#d8d0e6', accent: '#e0795a' },
+  rose:  { name: 'Rose',  bg: '#170f10', ink: '#efd9d6', accent: '#d4574b' },
+  jade:  { name: 'Jade',  bg: '#0c1513', ink: '#cfe3dc', accent: '#5fb39a' },
+  paper: { name: 'Paper', bg: '#ebe5d8', ink: '#2b2724', accent: '#b8432f', light: true },
+  frost: { name: 'Frost', bg: '#e9eef0', ink: '#24303a', accent: '#3d78ad', light: true },
 };
+const PALETTE_ALIAS = { abyss: 'tide', aurora: 'jade', forest: 'moss', glacier: 'frost', lotus: 'plum', cosmos: 'plum', mist: 'fog' };
+export const paletteId = (id) => (PALETTES[id] ? id : PALETTES[PALETTE_ALIAS[id]] ? PALETTE_ALIAS[id] : 'slate');
 
-const L = (on, vol, ch) => ({ on, vol, ch });
-
-function scene(name, tagline, palette, root, mode, g, layers, extra = {}) {
-  const out = {
-    name, tagline, palette, root, mode, a4: 440, just: false,
-    pace: g[0], evolve: g[1], bright: g[2], space: g[3], layers: {}, ...extra,
-  };
-  for (const def of LAYERS) out.layers[def.id] = layers[def.id] ? L(true, ...layers[def.id]) : L(false, 0.6, 0.5);
-  return out;
-}
-
-export const PRESETS = [
-  scene('Still Water', 'slow tides under a sleeping sky', 'abyss', 2, 'dorian', [0.35, 0.5, 0.45, 0.75],
-    { drone: [0.55, 0.35], pad: [0.7, 0.4], bells: [0.45, 0.3], ocean: [0.6, 0.4], shimmer: [0.35, 0.35] }),
-  scene('Forest Dawn', 'first light through wet leaves', 'forest', 7, 'majpent', [0.55, 0.45, 0.65, 0.55],
-    { pad: [0.5, 0.55], keys: [0.55, 0.45], birds: [0.6, 0.5], stream: [0.5, 0.45], wind: [0.25, 0.2] }),
-  scene('Temple', 'bronze, incense, stone', 'sand', 9, 'insen', [0.3, 0.35, 0.5, 0.8],
-    { bowls: [0.8, 0.5], drone: [0.55, 0.3], choir: [0.35, 0.2], flute: [0.3, 0.35] }),
-  scene('Rain on Glass', 'a long afternoon indoors', 'mist', 5, 'lydian', [0.4, 0.5, 0.5, 0.6],
-    { pad: [0.6, 0.35], rain: [0.7, 0.55], keys: [0.4, 0.3], thunder: [0.35, 0.3] }),
-  scene('Aurora', 'light folding over the ice', 'aurora', 4, 'lydian', [0.4, 0.6, 0.7, 0.85],
-    { pad: [0.7, 0.6], shimmer: [0.6, 0.55], choir: [0.4, 0.5], wind: [0.3, 0.35], bells: [0.3, 0.25] }),
-  scene('Night Garden', 'warm air, a thousand small voices', 'night', 0, 'aeolian', [0.45, 0.4, 0.5, 0.6],
-    { drone: [0.4, 0.3], night: [0.6, 0.6], keys: [0.35, 0.25], pad: [0.45, 0.35], flute: [0.35, 0.3] }),
-  scene('Hearth', 'a fire that never needs tending', 'ember', 9, 'dorian', [0.35, 0.4, 0.45, 0.5],
-    { fire: [0.75, 0.5], drone: [0.4, 0.3], pad: [0.45, 0.3], rain: [0.3, 0.25] }),
-  scene('Deep Space', 'drifting past the last planet', 'cosmos', 11, 'lydian', [0.3, 0.65, 0.55, 0.95],
-    { drone: [0.65, 0.45], pad: [0.6, 0.5], shimmer: [0.5, 0.45], pulse: [0.3, 0.2], choir: [0.3, 0.1] }),
-  scene('Snowfall', 'the hush of everything covered', 'glacier', 3, 'majpent', [0.45, 0.45, 0.7, 0.8],
-    { keys: [0.5, 0.35], shimmer: [0.5, 0.4], wind: [0.4, 0.3], bells: [0.3, 0.25], pad: [0.45, 0.5] }),
-  scene('Lotus', 'petals on a slow current', 'lotus', 6, 'hirajoshi', [0.4, 0.45, 0.6, 0.7],
-    { flute: [0.5, 0.45], bowls: [0.4, 0.35], pad: [0.5, 0.45], stream: [0.35, 0.3] }),
-  scene('Deep Sleep', 'delta waves and distant surf', 'night', 2, 'aeolian', [0.2, 0.3, 0.25, 0.7],
-    { drone: [0.5, 0.2], pad: [0.5, 0.15], ocean: [0.45, 0.3], binaural: [0.45, 0.1] }),
-  scene('Desert Wind', 'dunes singing under the moon', 'dusk', 4, 'hijaz', [0.4, 0.5, 0.55, 0.7],
-    { drone: [0.55, 0.45], wind: [0.6, 0.6], flute: [0.45, 0.5], bells: [0.2, 0.2] }),
-  scene('Cathedral', 'voices held in old stone', 'cosmos', 7, 'ionian', [0.3, 0.5, 0.5, 1],
-    { choir: [0.65, 0.55], pad: [0.4, 0.35], bells: [0.3, 0.2], drone: [0.35, 0.3] }),
-  scene('Monsoon', 'heavy rain, warm earth', 'forest', 10, 'minpent', [0.5, 0.55, 0.5, 0.55],
-    { rain: [0.8, 0.85], thunder: [0.55, 0.55], drone: [0.4, 0.4], bowls: [0.35, 0.3] }),
+export const MOODS = [
+  { id: 'oceanic', name: 'Oceanic', palettes: ['tide', 'night', 'frost', 'jade'], modes: ['dorian', 'aeolian', 'lydian', 'majpent'], energy: [0.05, 0.4],
+    likes: { ocean: 3, drone: 2, pad: 3, shimmer: 2, bells: 1.5, wind: 1, choir: 1, strings: 1, bass: 1, marimba: 0.8 } },
+  { id: 'sylvan', name: 'Forest', palettes: ['moss', 'fog', 'jade', 'paper'], modes: ['majpent', 'ionian', 'mixolydian', 'yo', 'dorian'], energy: [0.15, 0.55],
+    likes: { birds: 3, stream: 3, keys: 2.5, pad: 2, flute: 2, wind: 1, rain: 1, marimba: 1.5, wood: 1.2, handdrum: 1 } },
+  { id: 'sacred', name: 'Sacred', palettes: ['sand', 'ember', 'plum'], modes: ['insen', 'hirajoshi', 'hijaz', 'phrygian', 'dorian'], energy: [0, 0.35],
+    likes: { bowls: 3, drone: 3, choir: 2.5, flute: 1.5, bells: 1.5, fire: 1, pulse: 1, strings: 1 } },
+  { id: 'celestial', name: 'Celestial', palettes: ['plum', 'jade', 'night', 'plum'], modes: ['lydian', 'whole', 'ionian', 'majpent'], energy: [0, 0.45],
+    likes: { shimmer: 3, pad: 3, choir: 2, drone: 2, bells: 2, strings: 2, arp: 1.5, binaural: 1 } },
+  { id: 'stormy', name: 'Storm', palettes: ['fog', 'night', 'tide'], modes: ['aeolian', 'phrygian', 'dorian', 'minpent', 'harmonic'], energy: [0.1, 0.5],
+    likes: { rain: 3, thunder: 2.5, wind: 2, drone: 2, pad: 2, piano: 1.5, strings: 1.5, bass: 1 } },
+  { id: 'nocturne', name: 'Nocturne', palettes: ['night', 'dusk', 'plum'], modes: ['aeolian', 'dorian', 'minpent', 'hirajoshi', 'melodic'], energy: [0.1, 0.5],
+    likes: { night: 3, piano: 2.5, keys: 1.5, pad: 2, flute: 2, drone: 1.5, stream: 1, bass: 1 } },
+  { id: 'hearth', name: 'Hearth', palettes: ['ember', 'slate', 'sand', 'paper'], modes: ['mixolydian', 'dorian', 'majpent', 'ionian'], energy: [0.1, 0.5],
+    likes: { fire: 3, piano: 2, pad: 2, keys: 2, drone: 1.5, rain: 1.5, pulse: 1, strings: 1 } },
+  { id: 'downtempo', name: 'Downtempo', palettes: ['dusk', 'plum', 'rose', 'jade', 'night'], modes: ['dorian', 'aeolian', 'minpent', 'mixolydian', 'melodic'], energy: [0.55, 0.9],
+    likes: { kick: 3, shaker: 2.5, bass: 3, pad: 2.5, arp: 2, piano: 2, keys: 1.5, marimba: 1.5, handdrum: 1.2, wood: 1, rain: 1 } },
+  { id: 'ritual', name: 'Ritual', palettes: ['ember', 'sand', 'moss'], modes: ['phrygian', 'hijaz', 'insen', 'minpent', 'dorian'], energy: [0.45, 0.85],
+    likes: { handdrum: 3, drone: 3, wood: 2, flute: 2, bowls: 1.5, fire: 1.5, shaker: 1.5, choir: 1, pulse: 1 } },
+  { id: 'lofi', name: 'Lo-fi', palettes: ['rose', 'paper', 'fog', 'sand'], modes: ['dorian', 'ionian', 'mixolydian', 'aeolian'], energy: [0.45, 0.8],
+    likes: { piano: 3, kick: 2.5, shaker: 2, bass: 2.5, rain: 2, keys: 1.5, pad: 1.5, wood: 1 }, g: { warmth: [0.4, 0.8], wow: [0.25, 0.6], bright: [0.3, 0.55], swing: [0.2, 0.45], complexity: [0.5, 0.95] } },
+  { id: 'glacial', name: 'Glacial', palettes: ['frost', 'fog', 'tide', 'slate'], modes: ['lydian', 'majpent', 'ionian', 'whole'], energy: [0, 0.3],
+    likes: { strings: 2.5, shimmer: 2.5, pad: 2, wind: 2, bells: 1.5, keys: 1.5, drone: 1.5, noise: 0.8 } },
+  { id: 'sleep', name: 'Sleep', palettes: ['night', 'tide', 'fog'], modes: ['aeolian', 'dorian', 'majpent', 'lydian'], energy: [0, 0.15],
+    likes: { drone: 3, pad: 3, ocean: 2, noise: 2, binaural: 2, rain: 1.5, strings: 1, bowls: 1.5, piano: 1, shimmer: 1.2 }, g: { bright: [0.15, 0.4], bpm: [44, 60], density: [0.1, 0.35], chordBars: [4, 8] } },
 ];
-
-/* ───────────────────────── Procedural scenes ───────────────────────── */
-
-const MOODS = [
-  { name: 'oceanic',   palettes: ['abyss', 'night', 'glacier'], modes: ['dorian', 'aeolian', 'lydian', 'majpent'],
-    likes: { ocean: 3, drone: 2, pad: 3, shimmer: 2, bells: 1.5, wind: 1, choir: 1 } },
-  { name: 'sylvan',    palettes: ['forest', 'mist', 'aurora'], modes: ['majpent', 'ionian', 'mixolydian', 'yo', 'dorian'],
-    likes: { birds: 3, stream: 3, keys: 2.5, pad: 2, flute: 2, wind: 1, rain: 1 } },
-  { name: 'sacred',    palettes: ['sand', 'ember', 'cosmos'], modes: ['insen', 'hirajoshi', 'hijaz', 'phrygian', 'dorian'],
-    likes: { bowls: 3, drone: 3, choir: 2, flute: 1.5, bells: 1.5, fire: 1 } },
-  { name: 'celestial', palettes: ['cosmos', 'aurora', 'night', 'lotus'], modes: ['lydian', 'whole', 'ionian', 'majpent'],
-    likes: { shimmer: 3, pad: 3, choir: 2, drone: 2, bells: 2, pulse: 1, binaural: 1 } },
-  { name: 'stormy',    palettes: ['mist', 'night', 'abyss'], modes: ['aeolian', 'phrygian', 'dorian', 'minpent'],
-    likes: { rain: 3, thunder: 2.5, wind: 2, drone: 2, pad: 2, keys: 1 } },
-  { name: 'nocturne',  palettes: ['night', 'dusk', 'lotus'], modes: ['aeolian', 'dorian', 'minpent', 'hirajoshi'],
-    likes: { night: 3, keys: 2, pad: 2, flute: 2, drone: 1.5, stream: 1 } },
-  { name: 'warm',      palettes: ['ember', 'dusk', 'sand'], modes: ['mixolydian', 'dorian', 'majpent', 'ionian'],
-    likes: { fire: 3, pad: 2, keys: 2, drone: 2, rain: 1.5, pulse: 1 } },
-];
+export const MOOD_BY_ID = Object.fromEntries(MOODS.map((m) => [m.id, m]));
 
 const ADJ = ['Silent', 'Hollow', 'Amber', 'Silver', 'Distant', 'Velvet', 'Tidal', 'Drifting', 'Luminous', 'Quiet',
   'Ancient', 'Soft', 'Evening', 'Morning', 'Glass', 'Moss', 'Salt', 'Cloud', 'Ember', 'Low', 'Slow', 'Pale',
-  'Hidden', 'Golden', 'Blue', 'Northern', 'Sleeping', 'Weightless', 'Faint', 'Deep', 'Wandering', 'Still'];
+  'Hidden', 'Golden', 'Blue', 'Northern', 'Sleeping', 'Weightless', 'Faint', 'Deep', 'Wandering', 'Still',
+  'Copper', 'Indigo', 'Warm', 'Lucid', 'Open', 'Tender', 'Midnight', 'Lantern', 'Paper', 'Cedar'];
 const NOUN = ['Harbor', 'Canopy', 'Meadow', 'Orbit', 'Monastery', 'Lagoon', 'Tide', 'Cathedral', 'Valley',
   'Garden', 'Current', 'Horizon', 'Lantern', 'Glacier', 'Reverie', 'Driftwood', 'Nebula', 'Grove', 'Shoreline',
   'Hours', 'Fields', 'Echoes', 'Rooms', 'Pines', 'Lanterns', 'Waters', 'Embers', 'Clouds', 'Island', 'Hollow',
-  'Moon', 'Delta', 'Cloister', 'Estuary', 'Aurora', 'Sanctuary'];
-const TAG_A = ['breathing', 'drifting', 'unfolding', 'dissolving', 'turning', 'resting', 'glowing', 'wandering', 'settling'];
+  'Moon', 'Delta', 'Cloister', 'Estuary', 'Aurora', 'Sanctuary', 'Station', 'Weather', 'Rituals', 'Streets', 'Tapes'];
+const TAG_A = ['breathing', 'drifting', 'unfolding', 'dissolving', 'turning', 'resting', 'glowing', 'wandering', 'settling', 'swaying', 'humming'];
 const TAG_B = ['slowly', 'without end', 'in the half-light', 'far from anywhere', 'under soft rain', 'beyond the tide line',
-  'at the edge of sleep', 'in no hurry', 'like weather', 'with the stars'];
+  'at the edge of sleep', 'in no hurry', 'like weather', 'with the stars', 'in time with you', 'after midnight'];
 
-function name(r) {
+function makeName(r) {
   const a = r.pick(ADJ);
   let n = r.pick(NOUN);
   while (n === a) n = r.pick(NOUN);
-  return r.chance(0.18) ? `${r.pick(NOUN)} of ${n}` : `${a} ${n}`;
+  const plural = NOUN.filter((x) => x.endsWith('s'));
+  return r.chance(0.18) ? `${r.pick(NOUN.filter((x) => !x.endsWith('s')))} of ${r.pick(plural)}` : `${a} ${n}`;
+}
+const makeTag = (r) => `${r.pick(TAG_A)} ${r.pick(TAG_B)}`;
+
+const offLayer = (def) => ({ on: false, p: defaults(def.schema) });
+
+function layerParams(def, r, vol) {
+  const p = randomize(def.schema, r, defaults(def.schema));
+  p.vol = vol;
+  return p;
 }
 
-export function generateScene(seed) {
-  const r = seeded(seed);
-  const mood = r.pick(MOODS);
-  const keys = Object.keys(mood.likes);
-  const layers = {};
-  for (const def of LAYERS) layers[def.id] = L(false, 0.6, 0.5);
-
-  const tonal = ['drone', 'pad', 'choir', 'shimmer'];
-  const count = r.int(3, 6);
+function chooseLayers(r, mood, energy) {
+  const likes = mood.likes;
   const chosen = new Set();
-  // Always anchor with something tonal so the scene has a harmonic floor.
-  const anchors = keys.filter((k) => tonal.includes(k));
-  if (anchors.length) chosen.add(r.weighted(anchors, anchors.map((k) => mood.likes[k])));
-  let guard = 0;
-  while (chosen.size < count && guard++ < 50) {
-    const pool = r.chance(0.85) ? keys : LAYERS.map((l) => l.id);
-    chosen.add(r.weighted(pool, pool.map((k) => mood.likes[k] || 0.4)));
-  }
-  for (const id of chosen) {
-    const weight = mood.likes[id] || 0.5;
-    layers[id] = L(true, clamp(r.float(0.3, 0.55) + weight * 0.06, 0.2, 0.85), r.float(0.15, 0.75));
-  }
-  if (layers.binaural.on) layers.binaural.vol = r.float(0.25, 0.45);
-  if (layers.thunder.on) layers.thunder.ch = r.float(0.1, 0.5);
+  const w = (id) => likes[id] || 0.3;
+  const byGroup = (g) => LAYERS.filter((l) => l.group === g).map((l) => l.id);
 
-  const mode = r.pick(mood.modes);
+  const anchors = TONAL_ANCHORS;
+  chosen.add(r.weighted(anchors, anchors.map((id) => w(id) + 0.2)));
+  if (r.chance(0.45)) chosen.add(r.weighted(anchors, anchors.map((id) => w(id))));
+
+  const rhythm = byGroup('rhythm');
+  if (r.chance(clamp(energy * 1.3, 0, 0.95))) {
+    const n = 1 + Math.round(energy * 2.2 * r.float(0.5, 1));
+    for (let i = 0; i < n; i++) chosen.add(r.weighted(rhythm, rhythm.map((id) => w(id))));
+    if (energy > 0.5 && r.chance(0.7)) chosen.add('bass');
+  }
+  const melody = byGroup('melody');
+  const nm = energy < 0.12 ? r.int(0, 1) : r.int(1, 2);
+  for (let i = 0; i < nm; i++) chosen.add(r.weighted(melody, melody.map((id) => w(id))));
+
+  const texture = [...byGroup('nature'), ...byGroup('mind')];
+  const nt = r.chance(0.8) ? r.int(1, 2) : 0;
+  for (let i = 0; i < nt; i++) chosen.add(r.weighted(texture, texture.map((id) => w(id) * (id === 'binaural' ? 0.4 : 1))));
+  return chosen;
+}
+
+function applyMoodBias(g, mood, r, energy) {
+  g.bpm = Math.round(clamp(lerp(50, 104, energy) + r.float(-8, 8), 40, 140));
+  g.density = clamp(lerp(0.25, 0.75, energy) + r.float(-0.12, 0.12), 0, 1);
+  if (energy < 0.3) g.swing = Math.min(g.swing, 0.15);
+  for (const [k, v] of Object.entries(mood.g || {})) {
+    g[k] = Array.isArray(v) ? (Number.isInteger(v[0]) && v[0] > 1 ? r.int(v[0], v[1]) : r.float(v[0], v[1])) : v;
+  }
+  if (typeof g.chordBars === 'number' && ![1, 2, 4, 8].includes(g.chordBars)) g.chordBars = g.chordBars > 5 ? 8 : 4;
+  g.touchMode = 'both';
+}
+
+export function generateScene(seed, opts = {}) {
+  const r = seeded(seed);
+  const mood = MOOD_BY_ID[opts.mood] || r.pick(MOODS);
+  const energy = opts.energy ?? r.float(...mood.energy);
+  const g = randomize(GLOBAL_PARAMS, r, defaults(GLOBAL_PARAMS));
+  applyMoodBias(g, mood, r, energy);
+
+  const chosen = chooseLayers(r, mood, energy);
+  const layers = {};
+  for (const def of LAYERS) {
+    if (!chosen.has(def.id)) { layers[def.id] = offLayer(def); continue; }
+    const like = mood.likes[def.id] || 0.5;
+    let vol = clamp(r.float(0.35, 0.6) + like * 0.05, 0.2, 0.85);
+    if (def.group === 'rhythm') vol *= lerp(0.7, 1.05, energy);
+    if (def.id === 'binaural') vol = r.float(0.25, 0.45);
+    layers[def.id] = { on: true, p: layerParams(def, r, vol) };
+  }
+  // a little more drive in rhythmic moods
+  if (layers.kick.on && energy > 0.6) layers.kick.p.hits = r.pick([4, 4, 3, 2]);
+
   return {
-    name: name(r),
-    tagline: `${r.pick(TAG_A)} ${r.pick(TAG_B)}`,
+    v: 2,
+    name: makeName(r),
+    tagline: makeTag(r),
+    mood: mood.id,
+    energy,
+    seed,
     palette: r.pick(mood.palettes),
     root: r.int(0, 11),
-    mode: MODES[mode] ? mode : 'dorian',
-    a4: r.chance(0.3) ? 432 : 440,
-    just: r.chance(0.25),
-    pace: r.float(0.2, 0.65),
-    evolve: r.float(0.3, 0.75),
-    bright: r.float(0.35, 0.75),
-    space: r.float(0.5, 0.95),
+    mode: r.pick(mood.modes.filter((m) => MODES[m])),
+    a4: r.chance(0.25) ? 432 : 440,
+    just: r.chance(0.2),
+    g,
     layers,
-    seed,
   };
+}
+
+/* ─── section rerolls: regenerate one aspect, keep the rest ─── */
+
+export const SECTIONS = [
+  { id: 'harmony', name: 'Harmony', hint: 'key, scale, chords' },
+  { id: 'rhythm', name: 'Rhythm', hint: 'tempo, groove, drums' },
+  { id: 'melody', name: 'Melody', hint: 'instruments & motifs' },
+  { id: 'texture', name: 'Texture', hint: 'weather & nature' },
+  { id: 'sound', name: 'Sound', hint: 'space, tone, effects' },
+  { id: 'palette', name: 'Colours', hint: 'visual palette' },
+];
+
+const secIds = (id) => (GLOBAL_SECTIONS.find((s) => s.id === id)?.params || []).map((p) => p.id);
+
+export function rerollSection(state, section, seed) {
+  const fresh = generateScene(seed, { mood: state.mood, energy: state.energy });
+  const next = structuredClone(state);
+  const copyG = (ids) => ids.forEach((id) => { next.g[id] = fresh.g[id]; });
+  const copyGroup = (groups) => {
+    for (const def of LAYERS) if (groups.includes(def.group)) next.layers[def.id] = fresh.layers[def.id];
+  };
+  switch (section) {
+    case 'harmony':
+      Object.assign(next, { root: fresh.root, mode: fresh.mode, a4: fresh.a4, just: fresh.just });
+      copyG(secIds('harmony'));
+      break;
+    case 'rhythm':
+      copyG(secIds('time'));
+      copyGroup(['rhythm']);
+      next.layers.bass = fresh.layers.bass;
+      break;
+    case 'melody':
+      copyG(secIds('melody'));
+      copyGroup(['melody']);
+      break;
+    case 'texture':
+      copyGroup(['nature', 'mind']);
+      break;
+    case 'sound':
+      copyG([...secIds('space'), ...secIds('colour')]);
+      for (const def of LAYERS) {
+        const f = fresh.layers[def.id].p;
+        for (const k of ['tone', 'rev', 'dly', 'pan']) next.layers[def.id].p[k] = f[k];
+      }
+      break;
+    case 'palette':
+      next.palette = fresh.palette === state.palette ? seeded(seed + 1).pick(Object.keys(PALETTES)) : fresh.palette;
+      return next;
+  }
+  if (!LAYERS.some((d) => next.layers[d.id].on)) next.layers.pad = fresh.layers.pad.on ? fresh.layers.pad : { on: true, p: layerParams(LAYER_BY_ID.pad, seeded(seed), 0.5) };
+  next.name = fresh.name;
+  next.tagline = fresh.tagline;
+  return next;
 }
 
 // Journey mode: a gentle step away from the current scene, not a jump.
@@ -148,61 +219,107 @@ export function mutateScene(s, seed) {
   if (on.length > 2 && r.chance(0.7)) next.layers[r.pick(on)].on = false;
   if (off.length && (on.length < 5 || r.chance(0.5))) {
     const id = r.pick(off);
-    next.layers[id] = L(true, r.float(0.3, 0.6), r.float(0.2, 0.7));
+    next.layers[id] = { on: true, p: layerParams(LAYER_BY_ID[id], r, r.float(0.3, 0.6)) };
   }
   for (const id of on) {
-    const l = next.layers[id];
-    l.vol = clamp(l.vol + r.float(-0.12, 0.12), 0.15, 0.9);
-    l.ch = clamp(l.ch + r.float(-0.2, 0.2), 0, 1);
+    const def = LAYER_BY_ID[id];
+    const p = next.layers[id].p;
+    for (const prm of def.schema) {
+      if (prm.type !== 'range' || prm.keep || !r.chance(0.3)) continue;
+      const span = prm.max - prm.min;
+      let v = clamp(p[prm.id] + r.float(-0.15, 0.15) * span, prm.min, prm.max);
+      if (prm.step >= 1) v = Math.round(v);
+      p[prm.id] = v;
+    }
   }
-  if (!LAYERS.some((l) => ['drone', 'pad', 'choir', 'shimmer'].includes(l.id) && next.layers[l.id].on)) {
-    next.layers.pad = L(true, 0.5, r.float(0.2, 0.6));
-  }
+  if (!TONAL_ANCHORS.some((id) => next.layers[id].on)) next.layers.pad = { on: true, p: layerParams(LAYER_BY_ID.pad, r, 0.5) };
   if (r.chance(0.5)) next.root = (next.root + r.pick([5, 7])) % 12;
-  if (r.chance(0.3)) next.mode = r.pick(Object.keys(MODES).filter((m) => m !== 'whole'));
+  if (r.chance(0.25)) next.mode = r.pick(Object.keys(MODES).filter((m) => m !== 'whole'));
   if (r.chance(0.5)) next.palette = r.pick(Object.keys(PALETTES));
-  next.bright = clamp(next.bright + r.float(-0.12, 0.12), 0.2, 0.85);
-  next.pace = clamp(next.pace + r.float(-0.1, 0.1), 0.1, 0.8);
-  next.name = name(r);
-  next.tagline = `${r.pick(TAG_A)} ${r.pick(TAG_B)}`;
+  next.g.bright = clamp(next.g.bright + r.float(-0.1, 0.1), 0.2, 0.85);
+  next.g.bpm = Math.round(clamp(next.g.bpm + r.float(-6, 6), 40, 140));
+  next.name = makeName(r);
+  next.tagline = makeTag(r);
   return next;
 }
 
-/* ───────────────────────── Share links ───────────────────────── */
+/* ─── curated starting points: named seeds through the same generator ─── */
 
-const pct = (v) => Math.round(v * 100);
+export const STARTS = [
+  { name: 'Still Water', mood: 'oceanic', seed: 1107, energy: 0.1 },
+  { name: 'Forest Dawn', mood: 'sylvan', seed: 2203, energy: 0.35 },
+  { name: 'Temple', mood: 'sacred', seed: 3319, energy: 0.15 },
+  { name: 'Night Drive', mood: 'downtempo', seed: 4421, energy: 0.75 },
+  { name: 'Aurora', mood: 'celestial', seed: 5501, energy: 0.2 },
+  { name: 'Monsoon', mood: 'stormy', seed: 6607, energy: 0.35 },
+  { name: 'Hearth', mood: 'hearth', seed: 7717, energy: 0.3 },
+  { name: 'Fire Circle', mood: 'ritual', seed: 8803, energy: 0.7 },
+  { name: 'Rainy Tapes', mood: 'lofi', seed: 9901, energy: 0.6 },
+  { name: 'Snowfall', mood: 'glacial', seed: 1013, energy: 0.1 },
+  { name: 'Deep Sleep', mood: 'sleep', seed: 1123, energy: 0.02 },
+  { name: 'Moth Hour', mood: 'nocturne', seed: 1229, energy: 0.3 },
+];
+
+export function startScene(s) {
+  const scene = generateScene(s.seed, { mood: s.mood, energy: s.energy });
+  scene.name = s.name;
+  return scene;
+}
+
+/* ─── normalising & share links ─── */
+
+export function normalize(s) {
+  const out = {
+    v: 2,
+    name: String(s?.name || 'Untitled').slice(0, 48),
+    tagline: String(s?.tagline || '').slice(0, 80),
+    mood: MOOD_BY_ID[s?.mood] ? s.mood : 'oceanic',
+    energy: clamp(Number(s?.energy) || 0.3, 0, 1),
+    seed: s?.seed >>> 0,
+    palette: paletteId(s?.palette),
+    root: clamp((s?.root | 0), 0, 11),
+    mode: MODES[s?.mode] ? s.mode : 'dorian',
+    a4: s?.a4 === 432 ? 432 : 440,
+    just: !!s?.just,
+    g: fill(s?.g, GLOBAL_PARAMS),
+    layers: {},
+  };
+  for (const def of LAYERS) {
+    const l = s?.layers?.[def.id];
+    out.layers[def.id] = { on: !!l?.on, p: fill(l?.p, def.schema) };
+  }
+  return out;
+}
+
+const b64 = {
+  enc: (str) => btoa(String.fromCharCode(...new TextEncoder().encode(str))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''),
+  dec: (str) => new TextDecoder().decode(Uint8Array.from(atob(str.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0))),
+};
 
 export function encodeScene(s) {
   const data = {
-    n: s.name, t: s.tagline, p: s.palette, r: s.root, m: s.mode, a: s.a4, j: s.just ? 1 : 0,
-    g: [s.pace, s.evolve, s.bright, s.space].map(pct),
-    l: LAYERS.filter((d) => s.layers[d.id].on).map((d) => [d.id, pct(s.layers[d.id].vol), pct(s.layers[d.id].ch)]),
+    v: 2, n: s.name, t: s.tagline, mo: s.mood, e: Math.round(s.energy * 100), p: s.palette, r: s.root, m: s.mode,
+    a: s.a4, j: s.just ? 1 : 0,
+    g: pack(s.g, GLOBAL_PARAMS),
+    l: LAYERS.map((d, i) => (s.layers[d.id].on ? [i, ...pack(s.layers[d.id].p, d.schema)] : null)).filter(Boolean),
   };
-  const json = JSON.stringify(data);
-  const b64 = btoa(String.fromCharCode(...new TextEncoder().encode(json)));
-  return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return b64.enc(JSON.stringify(data));
 }
 
 export function decodeScene(str) {
   try {
-    const b64 = str.replace(/-/g, '+').replace(/_/g, '/');
-    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-    const d = JSON.parse(new TextDecoder().decode(bytes));
+    const d = JSON.parse(b64.dec(str));
+    if (d.v !== 2) return null;
     const layers = {};
-    for (const def of LAYERS) layers[def.id] = L(false, 0.6, 0.5);
-    for (const [id, v, c] of d.l || []) if (layers[id]) layers[id] = L(true, clamp(v / 100, 0, 1), clamp(c / 100, 0, 1));
-    const [pace, evolve, bright, space] = (d.g || []).map((x) => clamp(x / 100, 0, 1));
-    return {
-      name: String(d.n || 'Shared Scene').slice(0, 48),
-      tagline: String(d.t || 'a gift from a friend').slice(0, 80),
-      palette: PALETTES[d.p] ? d.p : 'abyss',
-      root: clamp(d.r | 0, 0, 11),
-      mode: MODES[d.m] ? d.m : 'dorian',
-      a4: d.a === 432 ? 432 : 440,
-      just: !!d.j,
-      pace: pace ?? 0.5, evolve: evolve ?? 0.5, bright: bright ?? 0.6, space: space ?? 0.6,
-      layers,
-    };
+    for (const def of LAYERS) layers[def.id] = { on: false, p: defaults(def.schema) };
+    for (const [i, ...vals] of d.l || []) {
+      const def = LAYERS[i];
+      if (def) layers[def.id] = { on: true, p: unpack(vals, def.schema) };
+    }
+    return normalize({
+      name: d.n, tagline: d.t, mood: d.mo, energy: (d.e ?? 30) / 100, palette: d.p, root: d.r, mode: d.m,
+      a4: d.a, just: d.j, g: unpack(d.g, GLOBAL_PARAMS), layers,
+    });
   } catch {
     return null;
   }
