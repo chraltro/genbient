@@ -318,13 +318,23 @@ export class Choir extends Sustained {
 /* ─── Shimmer ─── */
 export class Shimmer extends Layer {
   static schema = [
-    ...common({ vol: 0.5, tone: 0.95, rev: 1, dly: 0.4 }),
+    ...common({ vol: 0.5, tone: 0.62, rev: 1, dly: 0.4, toneGen: [0.45, 0.7] }),
     OCT(0),
     DENSITY(0.5),
     R('length', 'Swell length', 0, 1, 0.5, { fmt: (v) => `${(4 + v * 12).toFixed(0)} s` }),
-    R('harm', 'Overtone', 0, 1, 0.25),
-    R('sparkle', 'Sparkle', 0, 1, 0.3, { hint: 'tremolo glint' }),
+    R('harm', 'Overtone', 0, 1, 0.2, { gen: [0, 0.4] }),
+    R('sparkle', 'Sparkle', 0, 1, 0.15, { gen: [0, 0.3], hint: 'tremolo glint' }),
   ];
+  // Pure tones at 2-4 kHz sit where hearing is most sensitive and feel
+  // piercing, so shimmer lives an octave lower, never above ~1.1 kHz, and
+  // passes through a gentle fixed lowpass whatever the settings.
+  soft() {
+    if (!this.softF) {
+      this.softF = filter(this.ctx, 'lowpass', 2200, 0.5);
+      this.softF.connect(this.bus);
+    }
+    return this.softF;
+  }
   interval() { return Math.max(0.3, -Math.log(1 - Math.random() * 0.999) * lerp(7, 1, this.dens)); }
   schedule(now, horizon) {
     this.events(now, horizon, () => this.interval(), (t) => this.glint(this.e.locked ? this.e.nextBeat(t) : t));
@@ -332,14 +342,16 @@ export class Shimmer extends Layer {
   glint(t) {
     const { ctx, h, p } = this;
     const d = pick(h.chord.tones) + (chance(0.3) ? h.len : 0);
-    const f = h.hz(d, 6 + p.oct - (chance(0.4) ? 1 : 0));
+    let f = h.hz(d, 5 + p.oct - (chance(0.5) ? 1 : 0));
+    while (f > 1100) f /= 2;
+    while (f < 330) f *= 2; // below this it stops being shimmer
     const L = 4 + p.length * 12;
     const a = L * rand(0.25, 0.4), hold = L * rand(0.05, 0.25), r = L - a - hold;
     const amp = gain(ctx, 0);
     swellEnv(amp.gain, t, rand(0.04, 0.09), a, hold, r);
     const o1 = osc(ctx, 'sine', f);
     const o2 = osc(ctx, 'sine', f * 2.002);
-    const g2 = gain(ctx, p.harm * 0.6);
+    const g2 = gain(ctx, f * 2 < 2000 ? p.harm * 0.3 : 0);
     // when locked to the beat, the glint flutters in time too
     const trem = osc(ctx, 'sine', this.e.locked ? (this.g.bpm / 60) * pick([1, 2]) : rand(3, 8));
     const tg = gain(ctx, p.sparkle * 0.5);
@@ -348,7 +360,7 @@ export class Shimmer extends Layer {
     const pan = makePanner(ctx, rand(-0.9, 0.9));
     o1.connect(amp);
     o2.connect(g2).connect(amp);
-    amp.connect(tn).connect(pan).connect(this.bus);
+    amp.connect(tn).connect(pan).connect(this.soft());
     const end = t + L + 0.1;
     for (const o of [o1, o2, trem]) { o.start(t); o.stop(end); }
     disposeOnEnd(o1, [o1, o2, g2, amp, pan, trem, tg, tn]);
