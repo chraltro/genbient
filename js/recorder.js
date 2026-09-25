@@ -16,8 +16,13 @@ export class Recorder {
   get seconds() { return this.e.ctx ? this.frames / this.e.ctx.sampleRate : 0; }
   get maxSeconds() { return MAX_SECONDS; }
 
-  async ensureNode() {
-    if (this.node) return;
+  // one node for the life of the page, even if Rec is tapped twice quickly
+  ensureNode() {
+    this.ready ||= this.makeNode().catch((err) => { this.ready = null; throw err; });
+    return this.ready;
+  }
+
+  async makeNode() {
     const ctx = this.e.ctx;
     const sink = ctx.createGain();
     sink.gain.value = 0; // keeps the node pulled by the graph without adding sound
@@ -70,7 +75,7 @@ export class Recorder {
   // Resolves once the audio thread has handed over its last block.
   stop() {
     this.recording = false;
-    if (!this.node.port) return Promise.resolve();
+    if (!this.node || !this.node.port) return Promise.resolve();
     return new Promise((resolve) => {
       this.onDone = resolve;
       this.node.port.postMessage('stop');
@@ -79,29 +84,33 @@ export class Recorder {
   }
 
   // Build the WAV: optional peak levelling and fades, plus title metadata.
+  // Works on the recorded blocks in place so a long take isn't copied
+  // three times over (that alone can get a tab killed on a phone).
   toWav({ normalize = true, fade = true, title = 'Genbient', comment = '' } = {}) {
     const sr = this.e.ctx.sampleRate;
     const frames = this.frames;
-    const pcm = new Int16Array(frames * 2);
-    let o = 0;
-    for (const c of this.chunks) { pcm.set(c, o); o += c.length; }
     const target = Math.pow(10, -1 / 20); // -1 dBFS
     const g = normalize && this.peak > 0.001 ? Math.min(target / this.peak, 8) : 1;
     const fadeFrames = fade ? Math.min(Math.floor(sr * 1.5), Math.floor(frames / 4)) : 0;
-    for (let i = 0; i < frames; i++) {
-      let k = g;
-      if (i < fadeFrames) k *= i / fadeFrames;
-      else if (i >= frames - fadeFrames) k *= (frames - 1 - i) / fadeFrames;
-      if (k !== 1) {
-        pcm[i * 2] = Math.max(-32768, Math.min(32767, Math.round(pcm[i * 2] * k)));
-        pcm[i * 2 + 1] = Math.max(-32768, Math.min(32767, Math.round(pcm[i * 2 + 1] * k)));
+    let i = 0;
+    for (const c of this.chunks) {
+      for (let j = 0; j < c.length; j += 2, i++) {
+        let k = g;
+        if (i < fadeFrames) k *= i / fadeFrames;
+        else if (i >= frames - fadeFrames) k *= (frames - 1 - i) / fadeFrames;
+        if (k !== 1) {
+          c[j] = Math.max(-32768, Math.min(32767, Math.round(c[j] * k)));
+          c[j + 1] = Math.max(-32768, Math.min(32767, Math.round(c[j + 1] * k)));
+        }
       }
     }
-    return encodeWav(pcm, sr, { INAM: title, ISFT: 'Genbient', ICMT: comment });
+    const blob = encodeWav(this.chunks, frames, sr, { INAM: title, ISFT: 'Genbient', ICMT: comment });
+    this.chunks = [];
+    return blob;
   }
 }
 
-function encodeWav(pcm, sampleRate, info) {
+function encodeWav(chunks, frames, sampleRate, info) {
   const enc = new TextEncoder();
   const infoParts = Object.entries(info).filter(([, v]) => v).map(([id, v]) => {
     let bytes = enc.encode(String(v) + '\0');
@@ -109,9 +118,9 @@ function encodeWav(pcm, sampleRate, info) {
     return { id, bytes };
   });
   const infoSize = 4 + infoParts.reduce((n, p) => n + 8 + p.bytes.length, 0);
-  const dataBytes = pcm.length * 2;
+  const dataBytes = frames * 4;
   const size = 12 + 24 + (8 + infoSize) + 8 + dataBytes;
-  const buf = new ArrayBuffer(size);
+  const buf = new ArrayBuffer(size - dataBytes); // header only; the audio blocks follow as they are
   const v = new DataView(buf);
   let p = 0;
   const str = (s) => { for (let i = 0; i < s.length; i++) v.setUint8(p++, s.charCodeAt(i)); };
@@ -122,6 +131,5 @@ function encodeWav(pcm, sampleRate, info) {
   str('LIST'); u32(infoSize); str('INFO');
   for (const { id, bytes } of infoParts) { str(id); u32(bytes.length); new Uint8Array(buf, p, bytes.length).set(bytes); p += bytes.length; }
   str('data'); u32(dataBytes);
-  new Int16Array(buf, p, pcm.length).set(pcm);
-  return new Blob([buf], { type: 'audio/wav' });
+  return new Blob([buf, ...chunks], { type: 'audio/wav' });
 }

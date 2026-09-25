@@ -12,7 +12,7 @@
   <meta name="apple-mobile-web-app-title" content="Genbient">
   <meta property="og:title" content="Genbient">
   <meta property="og:description" content="A generative ambient instrument.">
-  <meta property="og:image" content="icons/icon-512.png">
+  <meta property="og:image" content="https://chraltro.github.io/genbient/icons/icon-512.png">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon-180.png">
@@ -36,10 +36,14 @@
       </span>
     </header>
 
-    <section class="title" id="title" aria-live="polite">
+    <section class="title" id="title">
       <h1 id="scene-name">Genbient</h1>
       <p id="scene-tag" class="tag"></p>
       <p id="scene-meta" class="meta"></p>
+      <div class="title-actions">
+        <button class="text-btn" id="btn-back" hidden aria-label="Back to the previous scene">‹ Back</button>
+        <button class="text-btn" id="btn-save" aria-label="Save this scene">Save</button>
+      </div>
       <div class="runbar" id="runbar" hidden></div>
     </section>
 
@@ -63,14 +67,15 @@
   </main>
 
   <div class="backdrop" id="backdrop"></div>
-  <section class="sheet" id="sheet" role="dialog" aria-modal="true" aria-hidden="true">
-    <div class="grab" id="grab"><span></span></div>
+  <section class="sheet" id="sheet" role="dialog" aria-modal="true" aria-hidden="true" aria-label="Settings" inert>
+    <button class="grab" id="grab" aria-label="Close"><span></span></button>
     <div class="sheet-body" id="sheet-body"></div>
   </section>
 
-  <div class="toast" id="toast" role="status"></div>
+  <div class="toast" id="toast" role="status"><span id="toast-msg"></span><button id="toast-act" hidden></button></div>
   <div class="clip" id="clip" hidden>
     <span class="clip-info"><b>Clip ready</b><small id="clip-meta"></small></span>
+    <button class="text-btn" id="clip-play">Play</button>
     <button class="btn" id="clip-save">Save</button>
     <button class="text-btn" id="clip-discard" aria-label="Discard clip">Discard</button>
   </div>

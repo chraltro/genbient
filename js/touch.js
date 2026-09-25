@@ -96,6 +96,7 @@ export class Touch {
     if (!v || !v.amp) return;
     const t = this.ctx.currentTime;
     glide(v.amp.gain, 0, t, 0.35);
+    if (v.trem) glide(v.trem.gain, 0, t, 0.2);
     for (const s of v.srcs) s.stop(t + 2);
   }
 
@@ -158,6 +159,7 @@ export class Touch {
       srcs.push(trem);
       nodes.push(lp, trem, tg);
       v.lp = lp;
+      v.trem = tg;
     } else if (kind === 'warm') {
       const lp = filter(ctx, 'lowpass', 400 + bright * bright * 6000, 1.2);
       lp.connect(amp);

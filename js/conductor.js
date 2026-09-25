@@ -57,6 +57,13 @@ export class Conductor {
 
   skip() { if (this.active && this.nextBar != null) this.endBar = this.nextBar; }
 
+  // jump to a particular section at the next bar (intervals use this)
+  force(type) {
+    if (!this.active || this.nextBar == null) return;
+    this.upcoming = type;
+    this.endBar = this.nextBar;
+  }
+
   onBar({ bar, t, dur, beat, step }) {
     if (!this.active) return;
     this.nextBar = bar + 1;
@@ -71,7 +78,7 @@ export class Conductor {
     const nextE = this.upcoming ? SECTIONS[this.upcoming].energy : 0;
     const cur = SECTIONS[this.section];
     // a drum fill in the last bar before a rise in energy
-    if (left === 1 && nextE > cur.energy + 0.1) this.fill(t, beat, step, nextE);
+    if (left === 1 && nextE > cur.energy + 0.1) this.fill(t, dur, beat, nextE);
     if (bar >= this.endBar) {
       const next = this.upcoming || this.pickNext();
       this.upcoming = null;
@@ -189,8 +196,9 @@ export class Conductor {
       this.host.onKey();
     }
     const f = this.e.arr.frequency;
-    f.cancelScheduledValues(t);
-    f.setValueAtTime(f.value, t);
+    // hold the value a build's sweep will have reached at t, not today's value
+    if (f.cancelAndHoldAtTime) f.cancelAndHoldAtTime(t);
+    else { f.cancelScheduledValues(t); f.setValueAtTime(f.value, t); }
     if (type === 'breakdown') f.setTargetAtTime(1600, t, barDur);
     else if (type === 'build') { f.setValueAtTime(1400, t); f.exponentialRampToValueAtTime(18000, t + barDur * this.length); }
     else f.setTargetAtTime(20000, t, barDur * 0.3);
@@ -219,10 +227,13 @@ export class Conductor {
   }
 
   // a tom roll in the last bar that rises into the next section
-  fill(t, beat, step, energy) {
+  fill(t, bar, beat, energy) {
     const ctx = this.ctx;
-    const start = t + beat * (energy > 0.9 ? 2 : 3);
+    // the last beat or two of the bar, whatever the meter
+    const span = energy > 0.9 ? Math.min(2 * beat, bar / 2) : beat;
+    const start = t + bar - span;
     const n = energy > 0.9 ? 8 : 4;
+    const step = span / n;
     const base = pick([110, 130, 150]);
     for (let i = 0; i < n; i++) {
       const at = start + i * step;
@@ -256,6 +267,27 @@ export class Conductor {
     s.start(t);
     s.stop(t + len + 0.05);
     disposeOnEnd(s, [s, bp, g]);
+  }
+
+  // two soft bell notes: rising into a push, falling into a recovery
+  cue(up, t = this.ctx.currentTime + 0.05) {
+    const ctx = this.ctx;
+    const f0 = 440 * Math.pow(2, (this.e.harmony.root - 9) / 12) * 2;
+    const notes = up ? [f0, f0 * 1.5] : [f0 * 1.5, f0];
+    notes.forEach((f, i) => {
+      const at = t + i * 0.22;
+      const o = osc(ctx, 'sine', f);
+      const o2 = osc(ctx, 'sine', f * 2.76);
+      const g = gain(ctx, 0);
+      const g2 = gain(ctx, 0.12);
+      pluckEnv(g.gain, at, 0.22, 0.004, 1.4);
+      o.connect(g);
+      o2.connect(g2).connect(g);
+      g.connect(this.out());
+      o.start(at); o2.start(at);
+      o.stop(at + 1.5); o2.stop(at + 1.5);
+      disposeOnEnd(o, [o, o2, g, g2]);
+    });
   }
 
   // a deep hit on the downbeat of a peak

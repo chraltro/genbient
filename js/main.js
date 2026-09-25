@@ -27,7 +27,7 @@ const store = {
 };
 
 const prefs = Object.assign(
-  { volume: 0.85, journey: 0, breath: 'off', wake: false, mood: 'any', energy: null, filter: 'playing', quality: 'balanced', cadence: 165, runSong: true, runIntensity: 'steady', lite: false, recMax: 0, recFade: true, recLevel: true },
+  { volume: 0.85, journey: 0, breath: 'off', wake: false, mood: 'any', energy: null, filter: 'playing', quality: 'balanced', cadence: 165, runSong: true, runIntensity: 'steady', lite: false, recMax: 0, recFade: true, recLevel: true, intervals: 'off', pushCadence: 0 },
   store.get('prefs', {}),
 );
 prefs.vp = fill(prefs.vp, VISUAL_PARAMS);
@@ -42,13 +42,24 @@ let state = loadInitial();
 let started = false;
 let lastSceneChange = Date.now();
 
+// Messaging apps sometimes glue text onto a link, so only the code itself is read.
+function sceneFromHash() {
+  const m = location.hash.match(/#s=([A-Za-z0-9_-]+)/);
+  if (!m) return undefined;
+  history.replaceState(null, '', location.pathname + location.search);
+  const s = decodeScene(m[1]);
+  if (!s) setTimeout(() => toast('That link couldn\'t be read'), 800);
+  return s;
+}
+
+addEventListener('hashchange', () => {
+  const s = sceneFromHash();
+  if (s) { applyScene(s); toast(`Shared scene: ${s.name}`); }
+});
+
 function loadInitial() {
-  const m = location.hash.match(/^#s=(.+)$/);
-  if (m) {
-    const s = decodeScene(m[1]);
-    history.replaceState(null, '', location.pathname + location.search);
-    if (s) { setTimeout(() => toast('Shared soundscape loaded · tap to listen'), 800); return s; }
-  }
+  const s = sceneFromHash();
+  if (s) { setTimeout(() => toast('Shared soundscape loaded · tap to listen'), 800); return s; }
   const saved = store.get('scene2', null);
   if (saved) return normalize(saved);
   // First visit: something brand new, generated just for this person.
@@ -101,8 +112,10 @@ function setTheme() {
   $('meta[name="theme-color"]').setAttribute('content', p.bg);
 }
 
-function applyScene(next, { fade = 5, animate = true } = {}) {
+function applyScene(next, { fade = 5, animate = true, remember = true } = {}) {
+  if (remember && booted) remember_(state);
   state = normalize(next);
+  savedId = null;
   lastSceneChange = Date.now();
   visuals.setPalette(state.palette);
   setTheme();
@@ -113,6 +126,7 @@ function applyScene(next, { fade = 5, animate = true } = {}) {
   syncConductor(true);
   renderRunbar();
   updateMediaSession();
+  renderTitleActions();
   if (openName) renderSheet();
   save();
 }
@@ -153,6 +167,7 @@ async function togglePlay() {
     setMediaState('paused');
     return;
   }
+  stopPreview();
   engine.init();
   if (!started) {
     started = true;
@@ -171,6 +186,7 @@ async function togglePlay() {
   }
   document.body.classList.add('playing');
   orb.setAttribute('aria-label', 'Pause');
+  if (sleepEnd) engine.scheduleSleep((sleepEnd - Date.now()) / 1000);
   if (prefs.wake) requestWake();
   updateMediaSession();
   setMediaState('playing');
@@ -192,15 +208,80 @@ document.addEventListener('visibilitychange', () => {
 /* ─────────────────────────── generate ─────────────────────────── */
 
 function generate() {
+  if (running()) { newRunMusic(); toast('New music, same beat', undoAction()); return; }
   const mood = prefs.mood === 'any' ? undefined : prefs.mood;
   applyScene(generateScene(newSeed(), { mood, energy: prefs.energy ?? undefined, rhythm: state.g.beat ? undefined : false }));
   if (!started) togglePlay();
+  else toast(state.name, undoAction());
 }
 
-$('#btn-generate').addEventListener('click', (e) => {
-  e.currentTarget.classList.toggle('spin');
-  generate();
-});
+/* ─────────────────────────── history & saved scenes ─────────────────────────── */
+
+// Every scene you leave is kept, so Random is never a one-way door.
+let booted = false;
+let savedId = null;
+const history_ = store.get('history', []);
+let library = store.get('library', []);
+
+function remember_(s) {
+  const code = encodeScene(s);
+  if (history_.length && history_[history_.length - 1].code === code) return;
+  history_.push({ code, name: s.name, mood: s.mood });
+  if (history_.length > 30) history_.shift();
+  store.set('history', history_);
+}
+
+function back() {
+  const prev = history_.pop();
+  store.set('history', history_);
+  const s = prev && decodeScene(prev.code);
+  if (!s) { renderTitleActions(); return toast('Nothing further back'); }
+  applyScene(s, { remember: false, fade: 4 });
+  toast(`Back to ${s.name}`);
+}
+
+const undoAction = () => ({ label: 'Back', fn: back });
+
+function saveScene() {
+  if (savedId) return toast('Already saved · find it under Scenes');
+  const id = Date.now().toString(36);
+  library.unshift({ id, code: encodeScene(state), name: state.name, mood: state.mood, at: Date.now() });
+  if (library.length > 200) library.length = 200;
+  store.set('library', library);
+  savedId = id;
+  renderTitleActions();
+  if (openName === 'create') renderSheet();
+  toast('Saved · find it under Scenes');
+}
+
+function loadSaved(entry) {
+  const s = decodeScene(entry.code);
+  if (!s) return toast('That scene could not be read');
+  applyScene(s);
+  savedId = entry.id;
+  renderTitleActions();
+  if (!started) togglePlay();
+}
+
+function removeSaved(entry) {
+  library = library.filter((x) => x.id !== entry.id);
+  store.set('library', library);
+  if (savedId === entry.id) savedId = null;
+  renderTitleActions();
+  toast(`Removed ${entry.name}`, { label: 'Undo', fn: () => { library.unshift(entry); library.sort((a, b) => b.at - a.at); store.set('library', library); if (openName === 'create') renderSheet(); } });
+}
+
+function renderTitleActions() {
+  $('#btn-back').hidden = !history_.length;
+  const b = $('#btn-save');
+  b.textContent = savedId ? 'Saved' : 'Save';
+  b.classList.toggle('done', !!savedId);
+}
+
+$('#btn-back').addEventListener('click', back);
+$('#btn-save').addEventListener('click', saveScene);
+
+$('#btn-generate').addEventListener('click', generate);
 
 /* ─────────────────────────── recording ─────────────────────────── */
 
@@ -211,17 +292,28 @@ let clip = null;
 
 const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
+let recBusy = false; // between a tap and the recorder actually starting or stopping
+
+let recStoppedAt = 0;
+
 async function startRecording() {
-  if (!engine.playing) await togglePlay();
-  if (!engine.ctx || !engine.playing) return;
-  discardClip();
+  // a double tap on stop must not throw away the clip it just made
+  if (recBusy || performance.now() - recStoppedAt < 1200) return;
+  recBusy = true;
   try {
+    if (!engine.playing) await togglePlay();
+    if (!engine.ctx || !engine.playing) return;
+    discardClip();
     await recorder.start();
   } catch (err) {
     console.error(err);
     toast('Recording isn\'t available in this browser');
     return;
+  } finally {
+    recBusy = false;
   }
+  if (!recorder.recording) return;
+  clearInterval(recTimer);
   recBtn.classList.add('rec');
   document.body.classList.add('recording');
   const limit = prefs.recMax || recorder.maxSeconds;
@@ -231,16 +323,21 @@ async function startRecording() {
     if (s >= limit) stopRecording();
   }, 250);
   recBtn.textContent = '0:00';
+  recBtn.setAttribute('aria-label', 'Stop recording');
   toast(prefs.recMax ? `Recording ${mmss(prefs.recMax)}` : 'Recording · tap again to stop');
 }
 
 async function stopRecording() {
-  if (!recorder.recording) return;
+  if (!recorder.recording || recBusy) return;
+  recBusy = true;
   clearInterval(recTimer);
   await recorder.stop();
+  recBusy = false;
+  recStoppedAt = performance.now();
   recBtn.classList.remove('rec');
   document.body.classList.remove('recording');
   recBtn.textContent = 'Rec';
+  recBtn.setAttribute('aria-label', 'Record a clip');
   const secs = recorder.seconds;
   if (secs < 1) { toast('Too short to keep'); return; }
   const blob = recorder.toWav({
@@ -277,12 +374,33 @@ async function saveClip() {
 }
 
 function discardClip() {
+  stopPreview();
   clip = null;
   $('#clip').hidden = true;
 }
 
+// Listen back before saving. The live music pauses so the two don't clash.
+let preview = null;
+function togglePreview() {
+  if (preview) return stopPreview();
+  if (!clip) return;
+  if (engine.playing) togglePlay();
+  preview = new Audio(URL.createObjectURL(clip.blob));
+  preview.addEventListener('ended', stopPreview);
+  preview.play().catch(stopPreview);
+  $('#clip-play').textContent = 'Stop';
+}
+function stopPreview() {
+  if (!preview) return;
+  preview.pause();
+  URL.revokeObjectURL(preview.src);
+  preview = null;
+  $('#clip-play').textContent = 'Play';
+}
+
 recBtn.addEventListener('click', () => (recorder.recording ? stopRecording() : startRecording()));
 $('#clip-save').addEventListener('click', saveClip);
+$('#clip-play').addEventListener('click', togglePreview);
 $('#clip-discard').addEventListener('click', discardClip);
 
 function recordSection() {
@@ -333,7 +451,7 @@ const conductor = new Conductor(engine, {
 
 function syncConductor(restart) {
   const want = started && running() && prefs.runSong;
-  conductor.intensity = prefs.runIntensity;
+  conductor.intensity = runIntensity();
   if (want) {
     // running is strict about time: straight, tight, echoes on the grid
     if (state.g.swing) setGlobal('swing', 0);
@@ -353,8 +471,11 @@ const cadenceViews = new Set();
 function setCadence(v) {
   v = clamp(Math.round(v), 120, 200);
   prefs.cadence = v;
-  if (running()) setGlobal('bpm', v);
-  else {
+  if (running()) {
+    setGlobal('bpm', v);
+    if (runPhase === 'push') runBase = v - prefs.pushCadence;
+  } else {
+    resetRunClock();
     applyScene(runify(state, v, newSeed()), { fade: 2, animate: false });
     toast(`Running beat at ${v} steps a minute`);
   }
@@ -370,7 +491,11 @@ function newRunMusic() {
 }
 
 function endRun() {
+  const took = runElapsed;
+  if (runPhase === 'push') setGlobal('bpm', runBase);
+  resetRunClock();
   applyScene(unrun(state), { fade: 3, animate: false });
+  if (took > 60) return toast(`Run finished · ${mmss(took)}`);
   toast('Back to ambient');
 }
 
@@ -397,9 +522,78 @@ function renderRunbar() {
     bar.append(cadenceControl());
     const lab = h('span', 'section-label');
     bar.append(lab);
-    cadenceViews.add(() => { lab.textContent = conductor.active && currentSection ? currentSection.name.toLowerCase() : prefs.runSong ? '' : 'steady loop'; });
+    const time = h('span', 'run-time');
+    bar.append(time);
+    cadenceViews.add(() => {
+      lab.textContent = runPhaseLabel() || (conductor.active && currentSection ? currentSection.name.toLowerCase() : prefs.runSong ? '' : 'steady loop');
+      time.textContent = runElapsed >= 1 ? mmss(runElapsed) : '';
+    });
   }
   cadenceViews.forEach((f) => { if (f) f(); });
+}
+
+/* ─── run clock and intervals ─── */
+
+// Time only counts while the music plays, so pausing at a crossing pauses the run.
+let runElapsed = 0;
+let runPhase = 'off';
+let runBase = 0;
+const WARMUP = 300;
+const INTERVALS = {
+  off: null,
+  '1-2': { on: 60, off: 120, label: '1 min push · 2 easy' },
+  '2-2': { on: 120, off: 120, label: '2 push · 2 easy' },
+  '4-3': { on: 240, off: 180, label: '4 push · 3 easy' },
+};
+
+function resetRunClock() {
+  runElapsed = 0;
+  runPhase = 'off';
+  conductor.intensity = runIntensity();
+}
+
+function runIntensity() {
+  return runPhase === 'push' ? 'push' : runPhase === 'easy' ? 'easy' : prefs.runIntensity;
+}
+
+function phaseAt(t) {
+  const iv = INTERVALS[prefs.intervals];
+  if (!iv) return { phase: 'off' };
+  if (t < WARMUP) return { phase: 'warm', left: WARMUP - t };
+  const c = (t - WARMUP) % (iv.on + iv.off);
+  return c < iv.on ? { phase: 'push', left: iv.on - c } : { phase: 'easy', left: iv.on + iv.off - c };
+}
+
+function runPhaseLabel() {
+  if (!running() || runPhase === 'off') return '';
+  const { left } = phaseAt(runElapsed);
+  const name = { warm: 'warm-up', push: 'push', easy: 'easy' }[runPhase];
+  return `${name} · ${mmss(left)} left`;
+}
+
+function tickRun(dt) {
+  if (!running()) { if (runElapsed || runPhase !== 'off') resetRunClock(); return; }
+  if (!engine.playing) return;
+  runElapsed += dt;
+  const { phase } = phaseAt(runElapsed);
+  if (phase !== runPhase) {
+    const was = runPhase;
+    runPhase = phase;
+    conductor.intensity = runIntensity();
+    if (phase === 'push') {
+      runBase = Math.round(state.g.bpm);
+      if (prefs.pushCadence) setGlobal('bpm', runBase + prefs.pushCadence);
+      conductor.force('peak');
+      conductor.cue(true);
+      toast('Push');
+    } else if (phase === 'easy' && was === 'push') {
+      if (prefs.pushCadence) setGlobal('bpm', runBase);
+      conductor.force('breakdown');
+      conductor.cue(false);
+      toast('Easy');
+    } else if (phase === 'off' && was === 'push' && prefs.pushCadence) setGlobal('bpm', runBase);
+  }
+  cadenceViews.forEach((f) => f());
 }
 
 // Tap tempo: tap along with your footsteps to set the cadence.
@@ -442,10 +636,31 @@ function runSection() {
   inten.append(h('span', 'choice-label', 'Intensity'));
   inten.append(chips([{ value: 'easy', label: 'Easy' }, { value: 'steady', label: 'Steady' }, { value: 'push', label: 'Push' }], prefs.runIntensity, (v) => {
     prefs.runIntensity = v;
-    conductor.intensity = v;
+    conductor.intensity = runIntensity();
     save();
   }));
   run.append(inten);
+  const ivs = h('div', 'choice');
+  ivs.append(h('span', 'choice-label', 'Intervals'));
+  ivs.append(chips(Object.entries(INTERVALS).map(([id, iv]) => ({ value: id, label: iv ? iv.label : 'Off' })), prefs.intervals, (v) => {
+    prefs.intervals = v;
+    if (runPhase === 'push' && prefs.pushCadence) setGlobal('bpm', runBase);
+    runPhase = 'off';
+    tickRun(0);
+    conductor.intensity = runIntensity();
+    renderRunbar();
+    save();
+  }, 'scroll'));
+  const pc = h('div', 'choice');
+  pc.append(h('span', 'choice-label', 'Cadence during a push'));
+  pc.append(chips([[0, 'Same'], [4, '+4'], [8, '+8'], [12, '+12']].map(([v, l]) => ({ value: v, label: l })), prefs.pushCadence, (v) => {
+    if (runPhase === 'push') setGlobal('bpm', runBase + v);
+    prefs.pushCadence = v;
+    save();
+  }));
+  ivs.append(h('p', 'note', 'After a 5 minute warm-up the music alternates between a push and an easy stretch. Two soft bell notes mark each change: rising for push, falling for easy. The run clock pauses when the music does.'));
+  ivs.append(pc);
+  run.append(ivs);
   if (running()) {
     const row = h('div', 'row-btns');
     row.style.marginTop = '12px';
@@ -481,7 +696,7 @@ const keepAlive = (() => {
   a.loop = true;
   a.setAttribute('playsinline', '');
   // if the system pauses it (a call, CarPlay handing over), pick it back up
-  a.addEventListener('pause', () => { if (engine.playing) setTimeout(() => a.play().catch(() => {}), 500); });
+  a.addEventListener('pause', () => { if (engine.playing) setTimeout(() => { if (engine.playing) a.play().catch(() => {}); }, 500); });
   return a;
 })();
 
@@ -576,14 +791,20 @@ const bound = new Map(); // live updaters for controls, keyed "layer.param" or "
 
 const SHEETS = { create: renderCreate, layers: renderLayers, music: renderMusic, sound: renderSound, rest: renderRest };
 
+let lastFocus = null;
 function openSheet(name) {
   if (openName === name) return closeSheet();
+  if (!openName) lastFocus = document.activeElement;
   openName = name;
   renderSheet();
   body.scrollTop = 0;
   sheet.classList.add('open');
   sheet.setAttribute('aria-hidden', 'false');
+  sheet.inert = false;
+  app.inert = true;
+  sheet.setAttribute('aria-label', { create: 'Scenes', layers: 'Layers', music: 'Music', sound: 'Sound', rest: 'Sleep' }[name]);
   backdrop.classList.add('open');
+  requestAnimationFrame(() => { const h2 = body.querySelector('h2'); if (h2) { h2.tabIndex = -1; h2.focus({ preventScroll: true }); } });
   visuals.busy = true;
   document.querySelectorAll('[data-sheet]').forEach((b) => b.classList.toggle('active', b.dataset.sheet === name));
   bumpIdle();
@@ -593,7 +814,11 @@ function closeSheet() {
   openName = null;
   sheet.classList.remove('open');
   sheet.setAttribute('aria-hidden', 'true');
+  sheet.inert = true;
+  app.inert = false;
   backdrop.classList.remove('open');
+  if (lastFocus && document.contains(lastFocus)) lastFocus.focus({ preventScroll: true });
+  lastFocus = null;
   visuals.busy = false;
   document.querySelectorAll('[data-sheet]').forEach((b) => b.classList.remove('active'));
   bumpIdle();
@@ -614,10 +839,16 @@ function renderSheet() {
 document.querySelectorAll('[data-sheet]').forEach((b) => b.addEventListener('click', () => openSheet(b.dataset.sheet)));
 backdrop.addEventListener('click', closeSheet);
 addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') closeSheet();
+  if (e.key === 'Escape' && openName) closeSheet();
   if (e.target.tagName === 'INPUT') return;
-  if (e.key === ' ' && !openName) { e.preventDefault(); togglePlay(); }
-  if (e.key === 'g' && !openName) generate();
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === ' ' && !openName && e.target.tagName !== 'BUTTON') { e.preventDefault(); togglePlay(); }
+  const keys = {
+    g: generate, n: generate, b: () => history_.length && back(), s: saveScene, r: () => (recorder.recording ? stopRecording() : startRecording()),
+    1: () => openSheet('create'), 2: () => openSheet('layers'), 3: () => openSheet('music'), 4: () => openSheet('sound'), 5: () => openSheet('rest'),
+  };
+  const fn = keys[e.key.toLowerCase()];
+  if (fn && (!openName || /\d/.test(e.key))) fn();
 });
 
 (() => {
@@ -684,9 +915,11 @@ function chips(options, current, onPick, cls = '') {
   const wrap = h('div', 'chips ' + cls);
   for (const o of options) {
     const b = h('button', 'chip' + (o.value === current ? ' on' : ''), o.label);
+    b.setAttribute('aria-pressed', String(o.value === current));
     b.addEventListener('click', () => {
-      wrap.querySelectorAll('.chip').forEach((c) => c.classList.remove('on'));
+      wrap.querySelectorAll('.chip').forEach((c) => { c.classList.remove('on'); c.setAttribute('aria-pressed', 'false'); });
       b.classList.add('on');
+      b.setAttribute('aria-pressed', 'true');
       onPick(o.value);
     });
     wrap.append(b);
@@ -714,6 +947,7 @@ function control(p, value, onChange, key) {
     const show = (v) => {
       input.style.setProperty('--v', `${((v - p.min) / (p.max - p.min)) * 100}%`);
       em.textContent = p.fmt ? p.fmt(v) : '';
+      input.setAttribute('aria-valuetext', em.textContent || String(Math.round(((v - p.min) / (p.max - p.min)) * 100)) + '%');
     };
     input.value = toPos(value);
     show(value);
@@ -770,6 +1004,40 @@ function renderCreate(el) {
   el.append(gen);
   el.append(h('p', 'note', 'Every scene is built from a seed: layers, harmony, rhythm, sound and colour. Mood, energy and rhythm steer it.'));
 
+  const mine = section('Saved', library.length ? `${library.length}` : null);
+  if (!library.length) mine.append(h('p', 'note', 'Tap <b>Save</b> under a scene\'s name to keep it here. Saved scenes come back exactly as they were.'));
+  const ml = h('div', 'starts saved');
+  for (const entry of library) {
+    const item = h('div', 'saved-item' + (entry.id === savedId ? ' current' : ''));
+    const b = h('button', null, `<b>${esc(entry.name)}</b><span>${esc(MOODS.find((m) => m.id === entry.mood)?.name.toLowerCase() || '')}</span>`);
+    b.addEventListener('click', () => loadSaved(entry));
+    const x = h('button', 'remove', '×');
+    x.setAttribute('aria-label', `Remove ${entry.name}`);
+    x.addEventListener('click', () => { removeSaved(entry); renderSheet(); });
+    item.append(b, x);
+    ml.append(item);
+  }
+  mine.append(ml);
+  el.append(mine);
+
+  if (history_.length) {
+    const rec = section('Recent', 'tap to go back');
+    const rl = h('div', 'starts');
+    history_.slice(-6).reverse().forEach((entry) => {
+      const b = h('button', null, `<b>${esc(entry.name)}</b><span>${esc(MOODS.find((m) => m.id === entry.mood)?.name.toLowerCase() || '')}</span>`);
+      b.addEventListener('click', () => {
+        const s2 = decodeScene(entry.code);
+        if (!s2) return;
+        history_.splice(history_.lastIndexOf(entry), 1);
+        applyScene(s2);
+        if (!started) togglePlay();
+      });
+      rl.append(b);
+    });
+    rec.append(rl);
+    el.append(rec);
+  }
+
   const rh = section('Rhythm', 'Random follows this');
   rh.append(chips([{ value: true, label: 'With rhythm' }, { value: false, label: 'Without' }], !!state.g.beat, (v) => setRhythm(v)));
   el.append(rh);
@@ -792,12 +1060,12 @@ function renderCreate(el) {
     b.title = s.hint;
     b.addEventListener('click', () => {
       applyScene(rerollSection(state, s.id, newSeed()), { fade: 4 });
-      toast(`New ${s.name.toLowerCase()}`);
+      toast(`New ${s.name.toLowerCase()}`, undoAction());
     });
     list.append(b);
   }
   const mut = h('button', 'reroll', 'Nudge everything');
-  mut.addEventListener('click', () => applyScene(mutateScene(state, newSeed()), { fade: 6 }));
+  mut.addEventListener('click', () => { applyScene(mutateScene(state, newSeed()), { fade: 6 }); toast('Nudged', undoAction()); });
   list.append(mut);
   rr.append(list);
   el.append(rr);
@@ -921,7 +1189,11 @@ function renderMusic(el) {
   el.append(head('Music', `${NOTE_NAMES[state.root]} ${MODES[state.mode].name}`));
 
   const key = section('Key', null, () => { state.root = Math.floor(Math.random() * 12); commitKey(); renderSheet(); });
-  key.append(chips(NOTE_NAMES.map((n, i) => ({ value: i, label: n })), state.root, (v) => { state.root = v; commitKey(); }, 'keys'));
+  key.append(chips(NOTE_NAMES.map((n, i) => ({ value: i, label: n })), state.root, (v) => {
+    state.root = v;
+    el.querySelector('.sheet-head small').textContent = `${NOTE_NAMES[v]} ${MODES[state.mode].name}`;
+    commitKey();
+  }, 'keys'));
   el.append(key);
 
   const mode = section('Scale');
@@ -949,7 +1221,7 @@ function renderSound(el) {
   el.append(recordSection());
   const vol = section('Volume');
   vol.append(control({ id: 'volume', label: 'Master', type: 'range', min: 0, max: 1, step: 0.01, fmt: (v) => `${Math.round(v * 100)}%` },
-    prefs.volume, (v) => { prefs.volume = v; engine.setVolume(v); save(); }));
+    prefs.volume, (v) => { prefs.volume = v; engine.setVolume(v); if (sleepEnd) engine.scheduleSleep((sleepEnd - Date.now()) / 1000); save(); }));
   el.append(vol);
   for (const id of ['space', 'colour']) globalSection(GLOBAL_SECTIONS.find((s) => s.id === id), el);
   const touch = GLOBAL_SECTIONS.find((s) => s.id === 'touch');
@@ -1029,7 +1301,8 @@ function renderRest(el) {
     sleepMin = m;
     sleepEnd = m ? Date.now() + m * 60000 : 0;
     sleepFading = false;
-    if (m && engine.playing) engine.setVolume(prefs.volume);
+    engine.setVolume(prefs.volume);
+    if (m) engine.scheduleSleep(m * 60);
     updateTimerStatus();
   }));
   timer.append(h('p', 'timer-status', ''));
@@ -1073,10 +1346,15 @@ function fmt(ms) {
 function updateTimerStatus() {
   const el = $('.timer-status');
   if (el) el.textContent = sleepEnd ? `Fading out in ${fmt(sleepEnd - Date.now())}` : '';
+  const sb = $('.top [data-sheet="rest"]');
+  sb.textContent = sleepEnd ? `Sleep ${Math.ceil((sleepEnd - Date.now()) / 60000)}m` : 'Sleep';
 }
 
+let lastTick = Date.now();
 setInterval(() => {
   const now = Date.now();
+  tickRun(Math.min(5, (now - lastTick) / 1000));
+  lastTick = now;
   if (sleepEnd) {
     const left = sleepEnd - now;
     if (left <= 60000 && !sleepFading && engine.playing) {
@@ -1088,6 +1366,7 @@ setInterval(() => {
       sleepMin = 0;
       sleepFading = false;
       if (engine.playing) togglePlay();
+      engine.setVolume(prefs.volume);
       if (openName === 'rest') renderSheet();
     }
     updateTimerStatus();
@@ -1157,17 +1436,33 @@ $('#btn-share').addEventListener('click', share_);
 /* ─────────────────────────── system integrations ─────────────────────────── */
 
 let toastTimer;
-function toast(msg) {
+let toastFn = null;
+function toast(msg, action) {
   const t = $('#toast');
-  t.textContent = msg;
+  const act = $('#toast-act');
+  $('#toast-msg').textContent = msg;
+  toastFn = action ? action.fn : null;
+  act.hidden = !action;
+  if (action) act.textContent = action.label;
+  t.classList.toggle('actionable', !!action);
   t.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), 2400);
+  toastTimer = setTimeout(() => { t.classList.remove('show', 'actionable'); toastFn = null; }, action ? 5000 : 2400);
 }
+$('#toast-act').addEventListener('click', () => {
+  const fn = toastFn;
+  toastFn = null;
+  $('#toast').classList.remove('show', 'actionable');
+  fn?.();
+});
 
 let wakeLock = null;
 async function requestWake() {
-  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { /* denied */ }
+  try {
+    const lock = await navigator.wakeLock?.request('screen');
+    if (!engine.playing || !prefs.wake) lock?.release();
+    else { wakeLock?.release(); wakeLock = lock; }
+  } catch { /* denied */ }
 }
 function releaseWake() {
   try { wakeLock?.release(); } catch { /* already released */ }
@@ -1186,6 +1481,8 @@ function updateMediaSession() {
     navigator.mediaSession.setActionHandler('play', () => { if (!engine.playing) togglePlay(); });
     navigator.mediaSession.setActionHandler('pause', () => { if (engine.playing) togglePlay(); });
     navigator.mediaSession.setActionHandler('nexttrack', generate);
+    navigator.mediaSession.setActionHandler('previoustrack', () => { if (history_.length) back(); });
+    navigator.mediaSession.setActionHandler('stop', () => { if (engine.playing) togglePlay(); });
   } catch { /* partial support */ }
 }
 function setMediaState(s) {
@@ -1194,12 +1491,21 @@ function setMediaState(s) {
 
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
   addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  // A new version took over: reload straight away if nothing is playing yet,
+  // otherwise say so and let it apply next time.
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController) return;
+    if (!started) location.reload();
+    else toast('Genbient was updated · it applies next time you open it');
+  });
 }
 
 /* ─────────────────────────── boot ─────────────────────────── */
 
 applyVisualPrefs();
-applyScene(state, { animate: false });
+applyScene(state, { animate: false, remember: false });
+booted = true;
 bumpIdle();
 
-window.genbient = { prefs, recorder, engine, visuals, keepAlive, conductor, get state() { return state; }, applyScene, generateScene, LAYER_BY_ID, GLOBAL_BY_ID, defaults };
+window.genbient = { prefs, tickRun, recorder, engine, visuals, keepAlive, conductor, get state() { return state; }, applyScene, generateScene, LAYER_BY_ID, GLOBAL_BY_ID, defaults };

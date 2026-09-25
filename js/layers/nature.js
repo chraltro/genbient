@@ -344,6 +344,8 @@ export class Night extends Continuous {
         c.next += c.rate * rk * rand(0.92, 1.08);
       }
     });
+    // frogs that were silent for a while start fresh instead of catching up
+    if (this.frogT < now - 1) this.frogT = now + rand(0.5, 3);
     while (this.p.frogs > 0.02 && this.frogT < horizon) {
       this.croak(Math.max(this.frogT, now));
       this.frogT += expRand(lerp(8, 1.2, this.p.frogs));

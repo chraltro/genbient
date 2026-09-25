@@ -50,20 +50,27 @@ export class Noise extends Continuous {
   start(t) {
     const { ctx } = this;
     this.src = this.keep(noiseSrc(this, this.p.color, t));
+    this.srcG = this.keep(gain(ctx, 1));
     this.lp = this.keep(filter(ctx, 'lowpass', 2000, 0.5));
     this.lfo = this.keep(osc(ctx, 'sine', this.rateHz()));
     this.lfoG = this.keep(gain(ctx, this.p.sweep * 1600));
     this.lfo.connect(this.lfoG).connect(this.lp.frequency);
-    this.src.connect(this.lp).connect(this.bus);
+    this.src.connect(this.srcG).connect(this.lp).connect(this.bus);
     this.lfo.start(t);
   }
   rateHz() { return lerp(0.01, 0.25, this.p.sweepRate); }
   param(id) {
     if (id === 'color') {
-      const old = this.src;
-      this.src = this.keep(noiseSrc(this, this.p.color, this.now));
-      this.src.connect(this.lp);
-      old.stop(this.now + 0.05);
+      // crossfade to the new colour instead of cutting
+      const t = this.now;
+      const old = this.src, oldG = this.srcG;
+      this.src = this.keep(noiseSrc(this, this.p.color, t));
+      this.srcG = this.keep(gain(this.ctx, 0));
+      this.src.connect(this.srcG).connect(this.lp);
+      glide(this.srcG.gain, 1, t, 0.1);
+      glide(oldG.gain, 0, t, 0.1);
+      old.stop(t + 0.6);
+      old.onended = () => { try { old.disconnect(); oldG.disconnect(); } catch { /* gone */ } this.nodes = this.nodes.filter((n) => n !== old && n !== oldG); };
     }
     if (id === 'sweep') glide(this.lfoG.gain, this.p.sweep * 1600, this.now, 0.3);
     if (id === 'sweepRate') glide(this.lfo.frequency, this.rateHz(), this.now, 0.3);

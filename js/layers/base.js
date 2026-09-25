@@ -133,7 +133,7 @@ export class Sustained extends Layer {
   release(v, t, dur) {
     if (v.releasing) return;
     v.releasing = true;
-    glide(v.out.gain, 0, t, dur / 4);
+    glide(v.out.gain, 0, t, dur / 5); // about -45 dB by the time it stops
     for (const o of v.srcs) o.stop(t + dur + 0.5);
     const nodes = v.nodes;
     v.srcs[0].onended = () => nodes.forEach((n) => { try { n.disconnect(); } catch { /* gone */ } });

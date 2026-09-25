@@ -251,7 +251,7 @@ export class Engine {
     const hidden = typeof document !== 'undefined' && document.hidden;
     this.lookahead = clamp(Math.max(LOOKAHEAD, (this.worstGap || 0) * 3, hidden ? 6 : 0), LOOKAHEAD, MAX_LOOKAHEAD);
     const horizon = now + this.lookahead;
-    if (this.nextStep < now - 0.3) { this.nextStep = now + 0.05; this.gaps = (this.gaps || 0) + 1; }
+    if (this.nextStep < now - 0.12) { this.nextStep = now + 0.05; this.gaps = (this.gaps || 0) + 1; }
 
     let guard = 0;
     while (this.nextStep < horizon && guard++ < 256) this.runStep();
@@ -290,6 +290,14 @@ export class Engine {
         chordStart = true;
       } else if (this.bar === 0) chordStart = true;
     }
+    // remember where the beats fall, for events that snap to them
+    for (let i = 0, acc = 0; i < m.groups.length && acc <= sib; acc += m.groups[i++]) {
+      if (acc === sib) {
+        (this.beats ||= []).push(this.nextStep);
+        if (this.beats.length > 48) this.beats.shift();
+        break;
+      }
+    }
     const swing = sib % 2 === 1 ? this.g.swing * dur * 0.66 : 0;
     const info = {
       t: this.nextStep + swing, step: Math.max(0, this.bar) * m.steps + sib, sib, bar: this.bar,
@@ -321,21 +329,24 @@ export class Engine {
   // In half-time (running) all musical events snap to the beat grid.
   get locked() { return !!this.g.halfTime; }
 
+  // The first beat at or after t, measured from the last bar line, so
+  // events anywhere in the lookahead land on their own beat.
   nextBeat(t) {
-    const dur = this.stepDur;
-    const g0 = this.meter.groups[0];
-    const toBeat = (g0 - (this.sib % g0)) % g0;
-    const t0 = this.nextStep + toBeat * dur;
-    const beat = g0 * dur;
-    return t <= t0 ? t0 : t0 + Math.ceil((t - t0) / beat) * beat;
+    const beats = this.beats || [];
+    for (const b of beats) if (b >= t - 1e-6) return b;
+    const last = beats.length ? beats[beats.length - 1] : this.nextStep;
+    const beat = this.meter.groups[0] * this.stepDur;
+    return last + Math.max(0, Math.ceil((t - last) / beat - 1e-6)) * beat;
   }
 
   duck(t, v = 1) {
     const a = this.g.pump * v;
     if (a <= 0.01) return;
     const p = this.pumpIn.gain;
-    p.cancelScheduledValues(t);
-    p.setValueAtTime(p.value, t);
+    // hold whatever the gain will be at t (it may still be recovering from
+    // the last hit) so the dip starts from there instead of jumping
+    if (p.cancelAndHoldAtTime) p.cancelAndHoldAtTime(t);
+    else { p.cancelScheduledValues(t); p.setValueAtTime(p.value, t); }
     p.linearRampToValueAtTime(1 - a * 0.75, t + 0.01);
     p.setTargetAtTime(1, t + 0.03, this.stepDur * 1.4);
   }
@@ -443,6 +454,9 @@ export class Engine {
   rebuildReverb(immediate) {
     clearTimeout(this.revTimer);
     const run = () => {
+      // let the previous crossfade finish before swapping again
+      const since = performance.now() - (this.revSwapAt || 0);
+      if (!immediate && since < 700) { this.revTimer = setTimeout(run, 700 - since); return; }
       const { revSize, revDamp } = this.g;
       const key = `${revSize.toFixed(2)}:${revDamp.toFixed(2)}`;
       if (key === this.revKey) return;
@@ -457,6 +471,7 @@ export class Engine {
       glide(b.g.gain, 1, t, immediate ? 0.01 : 0.4);
       glide(a.g.gain, 0, t, immediate ? 0.01 : 0.4);
       this.revActive = next;
+      this.revSwapAt = performance.now();
       clearTimeout(this.revRetire);
       this.revRetire = setTimeout(() => {
         if (a.live && this.convs[this.revActive] !== a) { try { this.pre.disconnect(a.c); } catch { /* not connected */ } a.live = false; }
@@ -505,17 +520,20 @@ export class Engine {
     this.init();
     const ctx = this.ctx;
     clearTimeout(this.suspendTimer);
+    const turn = (this.turn = (this.turn || 0) + 1);
     const b = ctx.createBufferSource();
     b.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
     b.connect(ctx.destination);
     b.start();
     if (ctx.state !== 'running') await ctx.resume();
+    if (turn !== this.turn) return; // paused while waking up
     this.playing = true;
     glide(this.master.gain, this.volume, ctx.currentTime, 1.0);
   }
 
   pause() {
     if (!this.ctx) return;
+    this.turn = (this.turn || 0) + 1;
     this.playing = false;
     glide(this.master.gain, 0, this.ctx.currentTime, 0.4);
     clearTimeout(this.suspendTimer);
@@ -525,6 +543,15 @@ export class Engine {
   setVolume(v) {
     this.volume = v;
     if (this.ctx && this.playing) glide(this.master.gain, v, this.ctx.currentTime, 0.15);
+  }
+
+  // The sleep fade also lives on the audio clock, so it happens even if the
+  // phone stops running the page's timers while locked.
+  scheduleSleep(inSeconds) {
+    if (!this.ctx || !this.playing) return;
+    const t = this.ctx.currentTime;
+    glide(this.master.gain, this.volume, t, 0.15);
+    this.master.gain.setTargetAtTime(0, t + Math.max(0.2, inSeconds - 60), 15);
   }
 
   fadeOut(seconds) {

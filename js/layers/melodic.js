@@ -251,12 +251,14 @@ export class Flute extends Layer {
     let t = t0;
     amp.gain.setValueAtTime(0, t0);
     const choices = [2, 2, 3, 4, 4, 6, 8];
+    let lastDur = 0;
     for (let i = 0; i < count; i++) {
       this.deg += chance(this.g.leap * 0.5) ? pick([-3, 3, 4]) : pick([-2, -1, -1, 1, 1, 2]);
       if (i === count - 1 && !h.isChordTone(this.deg)) this.deg = h.nearestChordTone(this.deg);
       this.deg = clamp(this.deg, -1, h.len + 3);
       const f = h.hz(this.deg, 5 + p.oct);
       const dur = (i === count - 1 ? pick([8, 12, 16]) : pick(choices)) * info.dur;
+      lastDur = dur;
       if (i === 0) o.frequency.setValueAtTime(f, t);
       else o.frequency.setTargetAtTime(f, t, 0.01 + p.glide * 0.08);
       bp.frequency.setValueAtTime(f * 2, t);
@@ -268,8 +270,10 @@ export class Flute extends Layer {
       this.note(t, f, 0, 0.25, 'flute');
       t += dur;
     }
-    amp.gain.setTargetAtTime(0, t - 0.4, 0.35);
-    const end = t + 2;
+    // release after the last note's own settle, or it would win and hold
+    const rel = Math.max(t - 0.4, t - lastDur * 0.4 + 0.01);
+    amp.gain.setTargetAtTime(0, rel, 0.35);
+    const end = rel + 2.4;
     for (const s of [o, vib, breath]) { s.start(t0); s.stop(end); }
     disposeOnEnd(o, [o, vib, vg, amp, breath, bp, bg, pan]);
     return t;
