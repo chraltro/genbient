@@ -1041,8 +1041,9 @@ const isControl = (el) => el.closest('button, input, .dock, header, .sheet');
 // it only turns into a note once the finger actually moves.
 app.addEventListener('pointerdown', (e) => {
   if (isControl(e.target)) return;
-  const quiet = !started || document.body.classList.contains('idle');
+  const quiet = !started; // the tap that starts the music doesn't also play a note
   if (!started) togglePlay();
+  bumpIdle();
   touches.set(e.pointerId, { x0: e.clientX, y0: e.clientY, t0: performance.now(), moved: false, quiet });
   try { app.setPointerCapture(e.pointerId); } catch { /* ignore */ }
   engine.init();
@@ -1420,6 +1421,7 @@ function renderCreate(el) {
 /* ─── Layers ─── */
 
 const expanded = new Set();
+const mixOpen = new Set();
 
 function renderLayers(el) {
   const count = () => LAYERS.filter((l) => state.layers[l.id].on).length;
@@ -1465,14 +1467,17 @@ function layerCard(def, hd, count) {
   inner.append(bar);
   const params = h('div', 'layer-params');
   // what makes this layer itself comes first; the mixing desk folds away below
-  const MIX = ['tone', 'pan', 'rev', 'dly'];
+  const MIX = def.id === 'binaural' ? ['tone'] : ['tone', 'pan', 'rev', 'dly']; // binaural stays dry and centred
+  const HIDE = def.id === 'binaural' ? ['pan', 'rev', 'dly'] : [];
   const fillParams = () => {
     params.innerHTML = '';
     for (const p of def.schema) {
-      if (p.id === 'vol' || MIX.includes(p.id)) continue;
+      if (p.id === 'vol' || MIX.includes(p.id) || HIDE.includes(p.id)) continue;
       params.append(control(p, ls.p[p.id], (v) => setP(p.id, v), `${def.id}.${p.id}`));
     }
     const mix = h('details', 'mix');
+    mix.open = mixOpen.has(def.id);
+    mix.addEventListener('toggle', () => { if (mix.open) mixOpen.add(def.id); else mixOpen.delete(def.id); });
     mix.append(h('summary', null, 'Mix · filter, pan, reverb, echo'));
     for (const id of MIX) {
       const p = def.schema.find((x) => x.id === id);

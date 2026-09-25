@@ -163,7 +163,7 @@ export class Continuous extends Layer {
 
 export function noiseSrc(layer, type, t) {
   const s = layer.ctx.createBufferSource();
-  s.buffer = layer.e.noise[type];
+  s.buffer = layer.e.noise.wide[type]; // beds are wide
   s.loop = true;
   s.start(t, rand(0, s.buffer.duration));
   return s;

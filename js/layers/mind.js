@@ -12,7 +12,7 @@ export class Binaural extends Continuous {
     R('carrier', 'Carrier', 0, 1, 0.5, { hint: 'low ↔ high hum' }),
     R('pulse', 'Isochronic pulse', 0, 1, 0, { gen: [0, 0.3], hint: 'audible on speakers' }),
   ];
-  // a carrier earbuds actually reproduce (about 130-400 Hz)
+  // a carrier earbuds reproduce (roughly 80-400 Hz, up from 65)
   carrier() { return this.h.hz(0, 3) * Math.pow(2, this.p.carrier * 1.3) / 1.6; }
   // Each tone must reach one ear only: no pan, no chorus, no reverb on the way.
   constructor(engine, def) {

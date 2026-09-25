@@ -67,13 +67,16 @@ export class Touch {
   onChord(t) {
     const h = this.e.harmony;
     const base = 4 - Math.floor(this.g.touchRange / 2);
+    const list = this.degrees();
     for (const v of this.voices.values()) {
       if (!v.freqs || v.idx == null || t - v.t0 < 0.3) continue;
-      const list = this.degrees();
-      let d = list[Math.min(v.idx, list.length - 1)];
+      v.idx = Math.min(v.idx, list.length - 1);
+      v.len = list.length;
+      let d = list[v.idx];
       if (this.g.touchNotes !== 'chord') d = h.nearestChordTone(d);
       const f = h.hz(d, base);
       for (const [p, mult] of v.freqs) glide(p, f * mult, t, 0.08);
+      if (v.mg) glide(v.mg.gain, f * (0.2 + (v.bright ?? 0.5)), t, 0.08);
       v.f = f;
     }
   }
@@ -86,6 +89,7 @@ export class Touch {
     const bright = 1 - y;
     if (v.lp) glide(v.lp.frequency, 400 + bright * bright * 6000, t, 0.05);
     if (v.mg) glide(v.mg.gain, v.f * (0.2 + bright * 1.0), t, 0.05);
+    v.bright = bright;
     if (v.formants) v.formants.forEach((bp, i) => glide(bp.frequency, lerp([320, 900][i], [800, 1300][i], bright), t, 0.08));
     if (v.pan && v.pan.pan) glide(v.pan.pan, (x - 0.5) * 1.4, t, 0.05);
     const f = this.pick(v, x);

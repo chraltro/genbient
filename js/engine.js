@@ -13,13 +13,19 @@ import { clamp, lerp, rand, chance, pick, glide, gain, filter, makePanner, osc }
 const LOOKAHEAD = 1.4;
 const MAX_LOOKAHEAD = 8;
 
-// Stereo noise, independent in each ear, so rain and sea are wide, not a dot.
-function makeNoise(ctx, seconds = 8) {
-  const len = Math.floor(ctx.sampleRate * seconds);
-  const mk = () => ctx.createBuffer(2, len, ctx.sampleRate);
-  const white = mk(), pink = mk(), brown = mk();
-  for (let ch = 0; ch < 2; ch++) fillNoise(white.getChannelData(ch), pink.getChannelData(ch), brown.getChannelData(ch), len, ctx.sampleRate);
-  return { white, pink, brown };
+// Mono noise for hits (a hat is a point in space), and stereo noise,
+// independent in each ear, for beds, so rain and sea are wide, not a dot.
+function makeNoise(ctx) {
+  const make = (channels, seconds) => {
+    const len = Math.floor(ctx.sampleRate * seconds);
+    const mk = () => ctx.createBuffer(channels, len, ctx.sampleRate);
+    const white = mk(), pink = mk(), brown = mk();
+    for (let ch = 0; ch < channels; ch++) fillNoise(white.getChannelData(ch), pink.getChannelData(ch), brown.getChannelData(ch), len, ctx.sampleRate);
+    return { white, pink, brown };
+  };
+  const noise = make(1, 6);
+  noise.wide = make(2, 4);
+  return noise;
 }
 
 function fillNoise(w, p, b, len, rate) {
@@ -413,6 +419,7 @@ export class Engine {
       const [root, mode] = h.modulation(this.g.modType);
       h.setKey(root, mode);
       for (const id in this.layers) this.layers[id].onKey(t);
+      this.touch?.onChord(t);
       this.emit('key', h);
     } else {
       h.advance(this.g.repetition);
