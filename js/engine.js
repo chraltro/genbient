@@ -13,11 +13,16 @@ import { clamp, lerp, rand, chance, pick, glide, gain, filter, makePanner, osc }
 const LOOKAHEAD = 1.4;
 const MAX_LOOKAHEAD = 8;
 
-function makeNoise(ctx, seconds = 6) {
+// Stereo noise, independent in each ear, so rain and sea are wide, not a dot.
+function makeNoise(ctx, seconds = 8) {
   const len = Math.floor(ctx.sampleRate * seconds);
-  const mk = () => ctx.createBuffer(1, len, ctx.sampleRate);
+  const mk = () => ctx.createBuffer(2, len, ctx.sampleRate);
   const white = mk(), pink = mk(), brown = mk();
-  const w = white.getChannelData(0), p = pink.getChannelData(0), b = brown.getChannelData(0);
+  for (let ch = 0; ch < 2; ch++) fillNoise(white.getChannelData(ch), pink.getChannelData(ch), brown.getChannelData(ch), len, ctx.sampleRate);
+  return { white, pink, brown };
+}
+
+function fillNoise(w, p, b, len, rate) {
   let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0, last = 0;
   for (let i = 0; i < len; i++) {
     const x = Math.random() * 2 - 1;
@@ -30,14 +35,13 @@ function makeNoise(ctx, seconds = 6) {
     last = (last + 0.02 * x) / 1.02;
     b[i] = last * 3.5;
   }
-  const fade = Math.floor(ctx.sampleRate * 0.05);
+  const fade = Math.floor(rate * 0.05);
   for (const d of [w, p, b]) {
     for (let i = 0; i < fade; i++) {
       const k = i / fade;
       d[i] = d[i] * k + d[len - fade + i] * (1 - k);
     }
   }
-  return { white, pink, brown };
 }
 
 function makeImpulse(ctx, seconds, damp) {
@@ -354,7 +358,7 @@ export class Engine {
       let f = 20;
       if (['pad', 'choir', 'strings'].includes(id)) f = beat ? 220 : 140;
       else if (id === 'drone') f = beat ? 60 : 25; // keep its fundamental, lose only the sub rumble
-      else if (grp === 'nature') f = this.g.beat ? 120 : 25;
+      else if (grp === 'nature') f = beat ? (id === 'ocean' || id === 'thunder' ? 60 : 120) : 25;
       else if (grp === 'melody') f = beat ? 150 : 40;
       if (Math.abs((l.hpTarget || 20) - f) > 1) { l.hpTarget = f; glide(l.hpf.frequency, f, t, 1.5); }
     }
@@ -413,6 +417,7 @@ export class Engine {
     } else {
       h.advance(this.g.repetition);
       for (const id in this.layers) this.layers[id].onChord(t);
+      this.touch?.onChord(t);
     }
     this.emit('chord', h);
   }

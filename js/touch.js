@@ -23,7 +23,7 @@ export class Touch {
 
   configure() {
     const t = this.ctx.currentTime;
-    glide(this.bus.gain, this.g.touchLevel * 0.8, t, 0.2);
+    glide(this.bus.gain, this.g.touchLevel * 0.5, t, 0.2);
     glide(this.echo.gain, this.g.touchEcho * 0.9, t, 0.2);
   }
 
@@ -56,11 +56,26 @@ export class Touch {
     if (!this.e.ctx || this.g.touchMode === 'off') return;
     if (this.sculpts) this.sculpt(x, y, true);
     if (!this.plays) return;
-    const v = { idx: null };
+    const v = { idx: null, t0: this.ctx.currentTime };
     const f = this.pick(v, x);
     this.build(v, f, y, x);
     this.voices.set(id, v);
     this.announce(v, f, x, 0.9);
+  }
+
+  // A held note leans onto the new chord instead of clashing with it.
+  onChord(t) {
+    const h = this.e.harmony;
+    const base = 4 - Math.floor(this.g.touchRange / 2);
+    for (const v of this.voices.values()) {
+      if (!v.freqs || v.idx == null || t - v.t0 < 0.3) continue;
+      const list = this.degrees();
+      let d = list[Math.min(v.idx, list.length - 1)];
+      if (this.g.touchNotes !== 'chord') d = h.nearestChordTone(d);
+      const f = h.hz(d, base);
+      for (const [p, mult] of v.freqs) glide(p, f * mult, t, 0.08);
+      v.f = f;
+    }
   }
 
   move(id, x, y) {
@@ -70,7 +85,7 @@ export class Touch {
     const t = this.ctx.currentTime;
     const bright = 1 - y;
     if (v.lp) glide(v.lp.frequency, 400 + bright * bright * 6000, t, 0.05);
-    if (v.mg) glide(v.mg.gain, v.f * (0.2 + bright * 2.5), t, 0.05);
+    if (v.mg) glide(v.mg.gain, v.f * (0.2 + bright * 1.0), t, 0.05);
     if (v.formants) v.formants.forEach((bp, i) => glide(bp.frequency, lerp([320, 900][i], [800, 1300][i], bright), t, 0.08));
     if (v.pan && v.pan.pan) glide(v.pan.pan, (x - 0.5) * 1.4, t, 0.05);
     const f = this.pick(v, x);
@@ -153,7 +168,7 @@ export class Touch {
       add('sine', 2, 0.12, lp, 3);
       add('triangle', 1, 0.15, lp, -4);
       const trem = osc(ctx, 'sine', 5.5);
-      const tg = gain(ctx, 0.12);
+      const tg = gain(ctx, 0.05);
       trem.connect(tg).connect(amp.gain);
       trem.start(t);
       srcs.push(trem);
@@ -184,13 +199,13 @@ export class Touch {
     } else {
       // bell: sustained FM
       const car = add('sine', 1, 0.6, amp);
-      const mod = osc(ctx, 'sine', f * 3.5);
-      const mg = gain(ctx, f * (0.2 + bright * 2.5));
+      const mod = osc(ctx, 'sine', f * 2);
+      const mg = gain(ctx, f * (0.2 + bright * 1.0));
       mod.connect(mg).connect(car.frequency);
       mod.start(t);
       srcs.push(mod);
       nodes.push(mod, mg);
-      freqs.push([mod.frequency, 3.5]);
+      freqs.push([mod.frequency, 2]);
       v.mg = mg;
     }
     amp.gain.setValueAtTime(0, t);

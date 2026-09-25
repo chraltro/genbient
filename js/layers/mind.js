@@ -7,12 +7,21 @@ const BANDS = (b) => (b < 4 ? 'delta' : b < 8 ? 'theta' : b < 13 ? 'alpha' : 'be
 
 export class Binaural extends Continuous {
   static schema = [
-    ...common({ vol: 0.35, tone: 1, rev: 0, dly: 0, revGen: [0, 0], dlyGen: [0, 0] }),
+    ...common({ vol: 0.35, tone: 1, rev: 0, dly: 0, revGen: [0, 0], dlyGen: [0, 0] }).map((p) => (p.id === 'pan' ? { ...p, gen: [0, 0] } : p)),
     R('beat', 'Beat frequency', 1, 16, 6, { step: 0.5, fmt: (v) => `${v} Hz · ${BANDS(v)}`, gen: [2, 10] }),
     R('carrier', 'Carrier', 0, 1, 0.5, { hint: 'low ↔ high hum' }),
     R('pulse', 'Isochronic pulse', 0, 1, 0, { gen: [0, 0.3], hint: 'audible on speakers' }),
   ];
-  carrier() { return this.h.hz(0, 2) * Math.pow(2, this.p.carrier * 1.6); }
+  // a carrier earbuds actually reproduce (about 130-400 Hz)
+  carrier() { return this.h.hz(0, 3) * Math.pow(2, this.p.carrier * 1.3) / 1.6; }
+  // Each tone must reach one ear only: no pan, no chorus, no reverb on the way.
+  constructor(engine, def) {
+    super(engine, def);
+    this.panner.disconnect();
+    if (this.panner.pan) this.panner.pan.value = 0;
+    this.panner.connect(engine.drive);
+  }
+  set(id, v) { if (id === 'pan' || id === 'rev' || id === 'dly') { this.p[id] = v; return; } super.set(id, v); }
   start(t) {
     const { ctx } = this;
     const f = this.carrier(), b = this.p.beat;

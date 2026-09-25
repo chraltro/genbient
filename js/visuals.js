@@ -40,8 +40,19 @@ export class Visuals {
     addEventListener('resize', () => this.resize());
     this.last = performance.now();
     this.lastDraw = 0;
-    const loop = (ts) => { this.frame(ts); requestAnimationFrame(loop); };
+    // at rest (paused, no fingers, colours settled) the loop naps between frames
+    const loop = (ts) => {
+      this.frame(ts);
+      if (this.resting()) setTimeout(() => requestAnimationFrame(loop), 140);
+      else requestAnimationFrame(loop);
+    };
     requestAnimationFrame(loop);
+  }
+
+  resting() {
+    const c = this.col, tg = this.target;
+    const settled = ['bg', 'ink'].every((k) => Math.abs(c[k][0] - tg[k][0]) + Math.abs(c[k][1] - tg[k][1]) + Math.abs(c[k][2] - tg[k][2]) < 1.5);
+    return !this.engine.playing && !this.fingers.size && !this.breath && settled;
   }
 
   setQuality(q) { this.quality = QUALITY[q] || QUALITY.balanced; this.resize(); }
@@ -207,8 +218,9 @@ export class Visuals {
       g.beginPath();
       g.moveTo(xs[0], ys[0]);
       for (let k = 1; k < P; k++) g.lineTo(xs[k], ys[k]);
-      g.lineTo(W, H);
-      g.lineTo(0, H);
+      // only the band a ridge can rise through needs covering, not the whole screen below
+      g.lineTo(W, base + 3);
+      g.lineTo(0, base + 3);
       g.closePath();
       g.fillStyle = rgba(col.bg, 1);
       g.fill();

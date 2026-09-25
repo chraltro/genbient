@@ -63,8 +63,14 @@ function loadInitial() {
   if (s) { setTimeout(() => toast('Shared soundscape loaded · tap to listen'), 800); return s; }
   const saved = store.get('scene2', null);
   if (saved) return normalize(saved);
-  // First visit: something brand new, generated just for this person.
-  return generateScene(newSeed(), { mood: 'oceanic', energy: 0.15 });
+  // First visit: something new but gentle: no beat, a bed of sound under a
+  // few layers, nothing that asks too much of someone who just arrived.
+  const first = generateScene(newSeed(), { mood: 'oceanic', energy: 0.12, rhythm: false });
+  if (!['ocean', 'rain', 'stream'].some((id) => first.layers[id].on)) Object.assign(first.layers.ocean, { on: true, p: { ...first.layers.ocean.p, vol: 0.45 } });
+  const keep = ['pad', 'drone', 'ocean', 'rain', 'stream'];
+  const on = LAYERS.filter((d) => first.layers[d.id].on).sort((a, b) => keep.includes(b.id) - keep.includes(a.id));
+  on.slice(4).forEach((d) => { first.layers[d.id].on = false; });
+  return first;
 }
 
 let saveTimer;
@@ -584,6 +590,7 @@ function renderModes() {
     b.setAttribute('aria-pressed', String(b.dataset.mode === m));
   });
   document.body.dataset.mode = m;
+  if (typeof wakeBreath === 'function') wakeBreath();
 }
 document.querySelectorAll('.modes [data-mode]').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
 
@@ -1030,14 +1037,16 @@ const app = $('#app');
 const touches = new Map();
 const isControl = (el) => el.closest('button, input, .dock, header, .sheet');
 
+// A tap that starts the music or wakes the faded interface stays silent;
+// it only turns into a note once the finger actually moves.
 app.addEventListener('pointerdown', (e) => {
   if (isControl(e.target)) return;
+  const quiet = !started || document.body.classList.contains('idle');
   if (!started) togglePlay();
-  touches.set(e.pointerId, { x0: e.clientX, y0: e.clientY, t0: performance.now(), moved: false });
+  touches.set(e.pointerId, { x0: e.clientX, y0: e.clientY, t0: performance.now(), moved: false, quiet });
   try { app.setPointerCapture(e.pointerId); } catch { /* ignore */ }
-  const x = e.clientX / innerWidth, y = e.clientY / innerHeight;
   engine.init();
-  engine.touch.down(e.pointerId, x, y);
+  if (!quiet) engine.touch.down(e.pointerId, e.clientX / innerWidth, e.clientY / innerHeight);
   visuals.touch(e.pointerId, e.clientX, e.clientY, true);
 });
 app.addEventListener('pointermove', (e) => {
@@ -1047,6 +1056,11 @@ app.addEventListener('pointermove', (e) => {
     return;
   }
   if (Math.hypot(e.clientX - tt.x0, e.clientY - tt.y0) > 8) tt.moved = true;
+  if (tt.quiet) {
+    if (!tt.moved || !started) return;
+    tt.quiet = false; // it's a gesture after all: start playing along
+    engine.touch.down(e.pointerId, e.clientX / innerWidth, e.clientY / innerHeight);
+  }
   engine.touch.move(e.pointerId, e.clientX / innerWidth, e.clientY / innerHeight);
   visuals.touch(e.pointerId, e.clientX, e.clientY, true);
 });
@@ -1263,7 +1277,7 @@ function control(p, value, onChange, key) {
     input.addEventListener('input', () => { const v = fromPos(+input.value); show(v); onChange(v); });
     if (key) bound.set(key, (v) => { input.value = toPos(v); show(v); });
     wrap.append(lab, input);
-    if (p.hint) wrap.title = p.hint;
+    if (p.hint) wrap.append(h('small', 'hint-line', esc(p.hint))); // phones have no hover
     return wrap;
   }
   if (p.type === 'choice') {
@@ -1450,12 +1464,21 @@ function layerCard(def, hd, count) {
   bar.append(more, dice);
   inner.append(bar);
   const params = h('div', 'layer-params');
+  // what makes this layer itself comes first; the mixing desk folds away below
+  const MIX = ['tone', 'pan', 'rev', 'dly'];
   const fillParams = () => {
     params.innerHTML = '';
     for (const p of def.schema) {
-      if (p.id === 'vol') continue;
+      if (p.id === 'vol' || MIX.includes(p.id)) continue;
       params.append(control(p, ls.p[p.id], (v) => setP(p.id, v), `${def.id}.${p.id}`));
     }
+    const mix = h('details', 'mix');
+    mix.append(h('summary', null, 'Mix · filter, pan, reverb, echo'));
+    for (const id of MIX) {
+      const p = def.schema.find((x) => x.id === id);
+      if (p) mix.append(control(p, ls.p[id], (v) => setP(id, v), `${def.id}.${id}`));
+    }
+    params.append(mix);
   };
   if (expanded.has(def.id)) fillParams();
   more.addEventListener('click', () => {
@@ -1633,6 +1656,7 @@ function setSleep(m) {
 function setBreath(v) {
   prefs.breath = v;
   breathStart = performance.now();
+  wakeBreath();
   save();
 }
 
@@ -1700,11 +1724,15 @@ setInterval(() => {
 
 let breathStart = performance.now();
 const breathText = $('#breath-text');
+// Runs only while a breathing guide is showing; otherwise it stops asking for frames.
+let breathOn = false;
 function breathLoop(ts) {
   const b = mode() === 'sleep' ? BREATHS[prefs.breath] : null;
   if (!b) {
     visuals.breath = null;
     breathText.classList.remove('show');
+    breathOn = false;
+    return;
   } else {
     const total = b.steps.reduce((s, x) => s + x[1], 0);
     let t = ((ts - breathStart) / 1000) % total;
@@ -1723,7 +1751,12 @@ function breathLoop(ts) {
   }
   requestAnimationFrame(breathLoop);
 }
-requestAnimationFrame(breathLoop);
+function wakeBreath() {
+  if (breathOn) return;
+  breathOn = true;
+  requestAnimationFrame(breathLoop);
+}
+wakeBreath();
 
 /* ─────────────────────────── share ─────────────────────────── */
 

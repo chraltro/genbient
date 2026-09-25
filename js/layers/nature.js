@@ -228,13 +228,18 @@ export class Birds extends Layer {
     R('distance', 'Distance', 0, 1, 0.35),
     R('pitch', 'Pitch', 0.6, 1.5, 1, { fmt: (v) => `×${v.toFixed(2)}` }),
   ];
-  interval() { return expRand(lerp(12, 1, this.dens)); }
+  interval() { return expRand(lerp(8, 1, this.dens)); }
   schedule(now, horizon) {
     this.events(now, horizon, () => this.interval(), (t) => this.song(t));
   }
   song(t) {
     const { ctx, p } = this;
     const o = osc(ctx, 'sine', 3000);
+    // a fast warble in the throat, so it sounds like a bird and not a test tone
+    const wob = osc(ctx, 'sine', rand(30, 70));
+    const wobG = gain(ctx, 3000 * p.pitch * rand(0.02, 0.04));
+    wob.connect(wobG).connect(o.frequency);
+    wob.start(t);
     const g = gain(ctx, 0);
     const lp = filter(ctx, 'lowpass', lerp(12000, 2500, p.distance));
     const pan = makePanner(ctx, rand(-0.9, 0.9));
@@ -285,7 +290,8 @@ export class Birds extends Layer {
     }
     o.start(t);
     o.stop(e + 0.1);
-    disposeOnEnd(o, [o, g, lp, pan]);
+    wob.stop(e + 0.1);
+    disposeOnEnd(o, [o, g, lp, pan, wob, wobG]);
     this.note(t, 3000, panOf(pan), 0.2, 'birds');
     return this.interval() + (e - t);
   }
@@ -306,7 +312,7 @@ export class Night extends Continuous {
     for (let i = 0; i < 4; i++) {
       const f = rand(3900, 5200) * (0.75 + this.p.pitch * 0.5);
       const o = this.keep(osc(ctx, 'sine', f));
-      const o2 = this.keep(osc(ctx, 'sine', f * 1.5 + rand(-40, 40)));
+      const o2 = this.keep(osc(ctx, 'sine', f * 2 + rand(-40, 40)));
       const g2 = this.keep(gain(ctx, 0.12));
       const g = this.keep(gain(ctx, 0));
       const pan = this.keep(makePanner(ctx, rand(-0.9, 0.9)));
@@ -322,7 +328,7 @@ export class Night extends Continuous {
     if (id === 'pitch') for (const c of this.crickets) {
       const f = rand(3900, 5200) * (0.75 + this.p.pitch * 0.5);
       glide(c.o.frequency, f, this.now, 0.3);
-      glide(c.o2.frequency, f * 1.5, this.now, 0.3);
+      glide(c.o2.frequency, f * 2, this.now, 0.3);
     }
   }
   schedule(now, horizon) {
