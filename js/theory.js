@@ -77,10 +77,23 @@ export class Harmony {
 
   get tones() { return this.chord.tones; }
 
-  // Best guess at the next chord's root, for bass lines that lead into it.
+  // Best guess at the next chord's root, for bass lines that lead into it:
+  // knows about a queued part and the song's own verse/chorus turns.
   peekDegree() {
+    const s = this.opts.song && this.song;
+    if (s) {
+      if (s.queued && s.queued !== s.part) return s[s.queued].degrees[0];
+      const next = (this.loopPos + 1) % this.loop.length;
+      if (next === 0 && !s.locked && s.passes + 1 >= 2) return s[s.part === 'verse' ? 'chorus' : 'verse'].degrees[0];
+    }
     if (this.opts.prog === 'loop' && this.loop.length) return this.loop[(this.loopPos + 1 + this.loop.length) % this.loop.length];
     return 0;
+  }
+
+  // The arranger says which part comes next, a bar before it starts.
+  queuePart(part) {
+    if (!this.song && !this.newSong()) return;
+    this.song.queued = part;
   }
 
   isChordTone(d) {
@@ -118,7 +131,9 @@ export class Harmony {
 
   // Song chords: a verse and a chorus from the library, played as written.
   newSong() {
-    const list = progressionsFor(this.mode, this.len);
+    let list = progressionsFor(this.mode, this.len);
+    // in a running song sections are 16 bars of four-bar chords: 2 or 4 chords fit whole
+    if (this.opts.fourBar) list = list.filter((p) => p.degrees.length === 2 || p.degrees.length === 4).concat(list.length ? [] : list);
     if (!list.length) { this.song = null; return false; }
     const verse = pick(list);
     const others = list.filter((p) => p !== verse);
@@ -137,6 +152,7 @@ export class Harmony {
   setPart(part) {
     if (!this.song && !this.newSong()) return;
     this.song.locked = true;
+    this.song.queued = null;
     if (this.song.part === part) return;
     this.song.part = part;
     this.loop = [...this.song[part].degrees];
@@ -144,7 +160,7 @@ export class Harmony {
   }
 
   get songInfo() {
-    return this.opts.song && this.song ? { verse: this.song.verse.name, chorus: this.song.chorus.name, part: this.song.part } : null;
+    return this.opts.song && this.song ? { verse: this.song.verse.name, chorus: this.song.chorus.name, bridge: this.song.bridge.name, part: this.song.part } : null;
   }
 
   newLoop() {
@@ -244,7 +260,7 @@ export class Harmony {
 
   // Place chord tones around a centre with optional voice leading from the
   // previous voicing. Returns sorted MIDI notes.
-  voice(tones, prev, { center = 57, spread = 0.5, lead = true, count = tones.length } = {}) {
+  voice(tones, prev, { center = 57, spread = 0.5, lead = true, count = tones.length, floor = 0 } = {}) {
     const width = 5 + spread * 14;
     const out = [];
     for (let i = 0; i < count; i++) {
@@ -259,6 +275,8 @@ export class Harmony {
       if (best == null) best = this.midi(d, Math.floor(center / 12) - 1);
       out.push(best);
     }
+    // nothing below the floor: low chord tones turn to mud against the bass
+    for (let i = 0; i < out.length; i++) while (out[i] < floor) out[i] += 12;
     out.sort((a, b) => a - b);
     for (let i = 1; i < out.length; i++) if (out[i] === out[i - 1]) out[i] += 12;
     return out;

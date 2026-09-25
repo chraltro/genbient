@@ -86,6 +86,9 @@ engine.on('key', (hm) => {
 });
 engine.on('evolve', (ev) => {
   if (ev.global) {
+    if (winding && (ev.id === 'density' || ev.id === 'bright')) return; // wind-down owns these for now
+    if (running() && ev.id === 'bright') ev.value = Math.max(ev.value, 0.78);
+    if (running() && ev.id === 'revMix') ev.value = Math.min(ev.value, 0.45);
     state.g[ev.id] = ev.value;
     engine.setGlobal(ev.id, ev.value);
     bound.get(`g.${ev.id}`)?.(ev.value);
@@ -118,6 +121,7 @@ function applyScene(next, { fade = 5, animate = true, remember = true } = {}) {
   if (remember && booted) remember_(state);
   state = normalize(next);
   savedId = null;
+  bedChoice = null;
   lastSceneChange = Date.now();
   visuals.setPalette(state.palette);
   setTheme();
@@ -174,6 +178,7 @@ async function togglePlay() {
   if (!started) {
     started = true;
     document.body.classList.add('started');
+    if (!prefs.knowsTokens) $('#hint').textContent = 'tap an underlined word to change it';
     engine.setLite(prefs.lite);
     engine.apply(state, { fade: 6 });
     syncConductor(true);
@@ -222,7 +227,8 @@ function songify(s) {
 function setSong(v) {
   prefs.song = v;
   save();
-  setGlobal('song', v);
+  state.g.song = v;
+  engine.setGlobal('song', v);
   if (v && SONG_MODE[state.mode]) {
     state.mode = SONG_MODE[state.mode];
     commitKey();
@@ -234,7 +240,7 @@ function setSong(v) {
   }
   renderPanel();
   if (openName === 'music') renderSheet();
-  toast(v ? 'Song chords: a verse and a chorus from real progressions' : 'Free chords');
+
 }
 
 function generate() {
@@ -255,7 +261,10 @@ let library = store.get('library', []);
 
 function remember_(s) {
   const code = encodeScene(s);
-  if (history_.length && history_[history_.length - 1].code === code) return;
+  const last = history_[history_.length - 1];
+  if (last && last.code === code) return;
+  // the same scene, changed (a beat added, a run started): keep only its latest form
+  if (last && last.name === s.name) history_.pop();
   history_.push({ code, name: s.name, mood: s.mood });
   if (history_.length > 30) history_.shift();
   store.set('history', history_);
@@ -302,7 +311,7 @@ function removeSaved(entry) {
 }
 
 function renderTitleActions() {
-  $('#btn-back').hidden = !history_.length;
+  $('#btn-back').hidden = !history_.length || running(); // in a run, Listen is the way back
   const b = $('#btn-save');
   b.textContent = savedId ? 'Saved' : 'Save';
   b.classList.toggle('done', !!savedId);
@@ -488,10 +497,14 @@ function syncConductor(restart) {
     if (state.g.humanize > 0.02) setGlobal('humanize', 0.02);
     if (![0.25, 0.5, 1, 2].includes(state.g.dlyDiv)) setGlobal('dlyDiv', 0.5);
     if (!state.g.halfTime) setGlobal('halfTime', true);
+    if (state.g.bright < 0.78) setGlobal('bright', 0.78);
+    if (state.g.drift) setGlobal('drift', 0);
+    if (state.g.revSize > 0.35) setGlobal('revSize', 0.35);
+    if (state.g.revMix > 0.45) setGlobal('revMix', 0.45);
   }
   // a full running band needs a little more headroom than an ambient bed
   if (engine.ctx) engine.drive.gain.setTargetAtTime(want ? 0.75 : 0.95, engine.ctx.currentTime, 0.5);
-  if (want && (restart || !conductor.active)) conductor.start();
+  if (want && (restart || !conductor.active)) { conductor.start(); syncLock(); }
   else if (!want && conductor.active) conductor.stop();
 }
 const cadenceViews = new Set();
@@ -560,7 +573,7 @@ function setMode(m) {
   prefs.mode = m;
   if (running()) endRun();
   else { renderModes(); renderPanel(); }
-  if (m === 'sleep') toast(sleepEnd ? 'Sleep' : 'Sleep · set a timer below');
+  if (m === 'sleep' && !sleepEnd) toast('Tap “Plays until you stop it” to set a timer');
   save();
 }
 
@@ -589,14 +602,14 @@ function renderPanel() {
   const text = (str) => parts.push(document.createTextNode(str));
   const flip = (label, act) => {
     const b = h('button', 'tok', esc(label));
-    b.addEventListener('click', () => { openTok = null; act(); });
+    b.addEventListener('click', () => { openTok = null; learnedTokens(); act(); });
     parts.push(b);
   };
   const choose = (key, options, current, onPick) => {
     const cur = options.find(([v]) => v === current) || options[0];
     const b = h('button', 'tok' + (openTok === key ? ' open' : ''), esc(cur[1]));
     b.setAttribute('aria-expanded', String(openTok === key));
-    b.addEventListener('click', () => { openTok = openTok === key ? null : key; renderPanel(); });
+    b.addEventListener('click', () => { openTok = openTok === key ? null : key; learnedTokens(); renderPanel(); });
     parts.push(b);
     if (openTok === key) {
       picker.append(chips(options.map(([value, label]) => ({ value, label })), cur[0], (v) => { openTok = null; onPick(v); renderPanel(); }, 'pchips'));
@@ -609,12 +622,8 @@ function renderPanel() {
     text(' and ');
     flip(state.g.song ? 'song chords' : 'free chords', () => setSong(!state.g.song));
     text('. ');
-    choose('mood', [['any', 'Any'], ...MOODS.filter((x) => x.id !== 'run').map((x) => [x.id, x.name])], prefs.mood, (v) => {
-      prefs.mood = v;
-      save();
-      if (v === 'any') toast('Random picks any mood');
-      else generate();
-    });
+    const moodNow = prefs.mood === 'any' ? state.mood : prefs.mood;
+    choose('mood', [...MOODS.filter((x) => x.id !== 'run').map((x) => [x.id, x.name]), ['any', 'Any']], moodNow, pickMood);
     text(' mood, ');
     choose('drift', [[0, 'staying put'], [5, 'a new scene every 5 min'], [10, 'every 10 min'], [20, 'every 20 min'], [40, 'every 40 min']], prefs.journey, setJourney);
     text('.');
@@ -633,7 +642,7 @@ function renderPanel() {
     tap.addEventListener('click', () => tapStep());
     top.append(cadenceControl(panelViews), tap);
     panel.append(top);
-    choose('iv', [['off', 'Steady'], ['1-2', 'One minute on, two easy'], ['2-2', 'Two on, two easy'], ['4-3', 'Four on, three easy']], prefs.intervals, setIntervals);
+    choose('iv', Object.entries(INTERVALS).map(([id, iv]) => [id, iv ? iv.label : 'No intervals']), prefs.intervals, setIntervals);
     text(', ');
     choose('len', [[0, 'no end'], [20, 'for 20 minutes'], [30, 'for 30 minutes'], [45, 'for 45 minutes'], [60, 'for an hour'], [90, 'for 90 minutes']], prefs.runGoal, setRunGoal);
     text('. ');
@@ -645,7 +654,7 @@ function renderPanel() {
     const time = h('span', 'run-time');
     const skip = h('button', 'text-btn skip-btn', 'skip');
     skip.addEventListener('click', skipPhase);
-    const more = h('button', 'text-btn', 'more');
+    const more = h('button', 'text-btn', 'run settings');
     more.addEventListener('click', () => openSheet('run'));
     whisper.append(lab, time, skip, more);
     panelViews.add(() => {
@@ -657,23 +666,26 @@ function renderPanel() {
       skip.textContent = ph === 'warm' ? 'skip warm-up' : ph === 'push' ? 'skip to easy' : 'skip to push';
     });
   } else {
-    choose('timer', [[0, 'No timer'], [15, 'Stop in 15 min'], [30, 'Stop in 30 min'], [45, 'Stop in 45 min'], [60, 'Stop in an hour'], [90, 'Stop in 90 min'], [120, 'Stop in 2 hours'], [180, 'Stop in 3 hours']], sleepEnd ? sleepMin : 0, setSleep);
-    text(', fading over ');
-    choose('fade', [[1, 'a minute'], [5, 'five minutes'], [15, 'fifteen minutes']], prefs.sleepFade, (v) => {
-      prefs.sleepFade = v;
-      if (sleepEnd) { sleepFading = false; engine.setVolume(prefs.volume); engine.scheduleSleep((sleepEnd - Date.now()) / 1000, fadeSecs()); }
-      save();
-    });
-    text(', ');
-    flip(prefs.windDown ? 'winding down' : 'not winding down', () => {
-      prefs.windDown = !prefs.windDown;
-      if (!prefs.windDown) endWind();
-      toast(prefs.windDown ? 'Winds down: darker, slower, sparser as the timer runs' : 'Wind down off');
-      save();
-      renderPanel();
-    });
+    choose('timer', [[0, 'Plays until you stop it'], [15, 'Stops in 15 min'], [30, 'Stops in 30 min'], [45, 'Stops in 45 min'], [60, 'Stops in an hour'], [90, 'Stops in 90 min'], [120, 'Stops in 2 hours'], [180, 'Stops in 3 hours']], sleepEnd ? sleepMin : 0, setSleep);
+    if (sleepEnd) {
+      text(', fading over ');
+      choose('fade', [[1, 'a minute'], [5, 'five minutes'], [15, 'fifteen minutes']], prefs.sleepFade, (v) => {
+        prefs.sleepFade = v;
+        sleepFading = false;
+        engine.setVolume(prefs.volume);
+        engine.scheduleSleep((sleepEnd - Date.now()) / 1000, fadeSecs());
+        save();
+      });
+      text(', ');
+      flip(prefs.windDown ? 'winding down' : 'not winding down', () => {
+        prefs.windDown = !prefs.windDown;
+        if (!prefs.windDown) endWind();
+        save();
+        renderPanel();
+      });
+    }
     text('. ');
-    choose('bed', [[null, 'This scene'], ...BEDS.map(([v, l]) => [v, l === 'Sleepier' ? 'Something sleepier' : l])], null, (v) => { if (v) playBed(v); });
+    choose('bed', [[null, 'This scene'], ...BEDS.map(([v, l]) => [v, l === 'Sleepier' ? 'Something sleepier' : l])], bedChoice, (v) => { if (v) playBed(v); });
     text(', breathing ');
     choose('breath', Object.entries(BREATHS).map(([id, b]) => [id, b ? b.label.toLowerCase() : 'freely']), prefs.breath, setBreath);
     text('.');
@@ -685,6 +697,22 @@ function renderPanel() {
   if (whisper.firstChild) panel.append(whisper);
   if (m === 'sleep') updateTimerStatus();
   refreshViews();
+}
+
+// Picking a mood plays a new scene in it; Any lets Random choose again.
+function pickMood(v) {
+  prefs.mood = v;
+  save();
+  if (v === 'any') toast('Random picks any mood');
+  else generate();
+}
+
+// The first-run hint about underlined words goes once someone has used one.
+function learnedTokens() {
+  if (prefs.knowsTokens) return;
+  prefs.knowsTokens = true;
+  document.body.classList.add('knows');
+  save();
 }
 
 function setBass(v) {
@@ -707,14 +735,19 @@ function playBed(kind) {
     s.palette = 'night';
   }
   applyScene(s, { fade: 6 });
+  bedChoice = kind;
+  renderPanel();
   toast(s.name, undoAction());
   if (!started) togglePlay();
 }
+let bedChoice = null; // which sleep sound is playing, until the scene changes
 
 // Fresh bass: a syncopated line at the drum tempo. In a running song the
 // arranger shapes it per section; otherwise it just plays.
 function setGroove(v) {
-  setGlobal('groove', v);
+  if (v && !state.g.beat) setRhythm(true); // before the bass, so a new rhythm can't replace it
+  state.g.groove = v;
+  engine.setGlobal('groove', v);
   const ls = state.layers.bass;
   if (v) {
     Object.assign(ls.p, FRESH_BASS, { busy: running() ? 0.6 : 0.5 });
@@ -725,9 +758,9 @@ function setGroove(v) {
     l.setAll(ls.p);
     if (ls.on) l.enable(1);
   }
-  if (v && !state.g.beat) setRhythm(true);
   renderPanel();
   renderMeta();
+  if (openName) renderSheet();
   save();
   const style = { dub: 'Dub bass: deep and patient', drive: 'Driving bass: fuzzed sixteenths', psy: 'Psy bass: rolling, with a sweeping filter', funk: 'Funk bass: syncopated, octave jumps' }[ls.p.bstyle] || 'Deep bass';
   toast(v ? style : 'Plain bass');
@@ -737,7 +770,7 @@ function setJourney(v) {
   prefs.journey = v;
   lastSceneChange = Date.now();
   save();
-  toast(v ? `A new scene drifts in every ${v} min` : 'The scene stays');
+
 }
 
 function setRunGoal(v) {
@@ -770,9 +803,9 @@ let goalDone = false;
 const warmup = () => prefs.warmup * 60;
 const INTERVALS = {
   off: null,
-  '1-2': { on: 60, off: 120, label: '1 min push · 2 easy', short: '1 / 2' },
-  '2-2': { on: 120, off: 120, label: '2 push · 2 easy', short: '2 / 2' },
-  '4-3': { on: 240, off: 180, label: '4 push · 3 easy', short: '4 / 3' },
+  '1-2': { on: 60, off: 120, label: 'One minute on, two easy' },
+  '2-2': { on: 120, off: 120, label: 'Two on, two easy' },
+  '4-3': { on: 240, off: 180, label: 'Four on, three easy' },
 };
 
 function resetRunClock() {
@@ -855,7 +888,14 @@ function tickRun(dt) {
       toast('Easy');
     } else if (phase === 'off' && was === 'push' && prefs.pushCadence) setGlobal('bpm', runBase);
   }
+  syncLock();
   refreshViews();
+}
+
+// The arranger's lock always follows where the runner is, whatever changed it.
+function syncLock() {
+  conductor.lock = goalDone ? 'easy' : runPhase === 'push' ? 'push' : runPhase === 'easy' ? 'easy' : null;
+  conductor.intensity = runIntensity();
 }
 
 // Tap tempo: tap along with your footsteps to set the cadence.
@@ -905,7 +945,7 @@ function runSection() {
   run.append(inten);
   const ivs = h('div', 'choice');
   ivs.append(h('span', 'choice-label', 'Intervals'));
-  ivs.append(chips(Object.entries(INTERVALS).map(([id, iv]) => ({ value: id, label: iv ? iv.label : 'Off' })), prefs.intervals, (v) => { setIntervals(v); renderPanel(); }, 'scroll'));
+  ivs.append(chips(Object.entries(INTERVALS).map(([id, iv]) => ({ value: id, label: iv ? iv.label : 'No intervals' })), prefs.intervals, (v) => { setIntervals(v); renderPanel(); }, 'scroll'));
   const pc = h('div', 'choice');
   pc.append(h('span', 'choice-label', 'Cadence during a push'));
   pc.append(chips([[0, 'Same'], [4, '+4'], [8, '+8'], [12, '+12']].map(([v, l]) => ({ value: v, label: l })), prefs.pushCadence, (v) => {
@@ -918,6 +958,7 @@ function runSection() {
   wu.append(h('span', 'choice-label', 'Warm-up before intervals'));
   wu.append(chips([[0, 'None'], [3, '3 min'], [5, '5 min'], [10, '10 min']].map(([v, l]) => ({ value: v, label: l })), prefs.warmup, (v) => {
     prefs.warmup = v;
+    if (runPhase === 'push' && prefs.pushCadence) setGlobal('bpm', runBase);
     runPhase = 'off';
     tickRun(0);
     refreshViews();
@@ -979,7 +1020,7 @@ function setRhythm(on) {
     next.tagline = state.tagline;
     applyScene(next, { fade: 3, animate: false });
   } else { renderPanel(); if (openName) renderSheet(); }
-  toast(on ? 'Rhythm on' : 'Rhythm off');
+  if (!openName) renderPanel();
   save();
 }
 
@@ -1069,6 +1110,7 @@ function openSheet(name) {
   requestAnimationFrame(() => { const h2 = body.querySelector('h2'); if (h2) { h2.tabIndex = -1; h2.focus({ preventScroll: true }); } });
   visuals.busy = true;
   document.querySelectorAll('[data-sheet]').forEach((b) => b.classList.toggle('active', b.dataset.sheet === name));
+  document.body.classList.add('sheet-open');
   bumpIdle();
 }
 
@@ -1083,6 +1125,7 @@ function closeSheet() {
   lastFocus = null;
   visuals.busy = false;
   document.querySelectorAll('[data-sheet]').forEach((b) => b.classList.remove('active'));
+  document.body.classList.remove('sheet-open');
   bumpIdle();
 }
 
@@ -1185,6 +1228,11 @@ function chips(options, current, onPick, cls = '') {
     });
     wrap.append(b);
   }
+  // in a scrolling row, show the chosen option
+  requestAnimationFrame(() => {
+    const on = wrap.querySelector('.chip.on');
+    if (on && wrap.scrollWidth > wrap.clientWidth) wrap.scrollLeft = Math.max(0, on.offsetLeft - wrap.clientWidth / 3);
+  });
   return wrap;
 }
 
@@ -1236,6 +1284,8 @@ function control(p, value, onChange, key) {
 
 function setGlobal(id, v) {
   if (id === 'beat') return setRhythm(v);
+  if (id === 'song') return setSong(v);
+  if (id === 'groove') return setGroove(v);
   state.g[id] = v;
   engine.setGlobal(id, v);
   if (id === 'bpm' || id === 'meter') { renderMeta(); refreshViews(); }
@@ -1258,7 +1308,7 @@ function globalSection(sec, el, { dice = true } = {}) {
 /* ─── Create ─── */
 
 function renderCreate(el) {
-  el.append(head('Scenes', `seed ${state.seed || '–'}`));
+  el.append(head('Scenes', 'saved, recent, new'));
 
   const gen = h('button', 'primary', 'Random scene');
   gen.addEventListener('click', generate);
@@ -1300,8 +1350,21 @@ function renderCreate(el) {
   }
 
 
+  const st = section('Starting points');
+  const ul = h('div', 'starts');
+  for (const s of STARTS) {
+    const b = h('button', s.name === state.name ? 'current' : '', `<b>${esc(s.name)}</b><span>${esc(MOODS.find((m) => m.id === s.mood).name.toLowerCase())}</span>`);
+    b.addEventListener('click', () => {
+      applyScene(songify(startScene(s)));
+      if (!started) togglePlay();
+    });
+    ul.append(b);
+  }
+  st.append(ul);
+  el.append(st);
+
   const mood = section('Mood');
-  mood.append(chips([{ value: 'any', label: 'Any' }, ...MOODS.map((m) => ({ value: m.id, label: m.name }))], prefs.mood, (v) => { prefs.mood = v; save(); }, 'scroll'));
+  mood.append(chips([{ value: 'any', label: 'Any' }, ...MOODS.filter((m) => m.id !== 'run').map((m) => ({ value: m.id, label: m.name }))], prefs.mood, (v) => { pickMood(v); }, 'scroll'));
   el.append(mood);
 
   const en = section('Energy');
@@ -1338,18 +1401,6 @@ function renderCreate(el) {
   sh.append(row);
   el.append(sh);
 
-  const st = section('Starting points');
-  const ul = h('div', 'starts');
-  for (const s of STARTS) {
-    const b = h('button', s.name === state.name ? 'current' : '', `<b>${esc(s.name)}</b><span>${esc(MOODS.find((m) => m.id === s.mood).name.toLowerCase())}</span>`);
-    b.addEventListener('click', () => {
-      applyScene(songify(startScene(s)));
-      if (!started) togglePlay();
-    });
-    ul.append(b);
-  }
-  st.append(ul);
-  el.append(st);
 }
 
 /* ─── Layers ─── */
@@ -1374,8 +1425,8 @@ function renderLayers(el) {
 
 function layerCard(def, hd, count) {
   const ls = state.layers[def.id];
-  const row = h('div', 'layer' + (ls.on ? ' on' : '') + (expanded.has(def.id) ? ' open' : ''));
-  const groupName = GROUPS.find((g) => g.id === def.group).name + (def.group === 'rhythm' && !state.g.beat ? ' · rhythm off' : '');
+  const row = h('div', 'layer' + (ls.on ? ' on' : '') + (expanded.has(def.id) ? ' open' : '') + (def.group === 'rhythm' && !state.g.beat ? ' muted' : ''));
+  const groupName = GROUPS.find((g) => g.id === def.group).name + (def.group === 'rhythm' && !state.g.beat ? ' · beat off' : '');
   const tg = h('button', 'layer-toggle', `<span class="dot"></span><span class="layer-name">${esc(def.name)}<small>${groupName.toLowerCase()}${def.id === 'binaural' ? ' · headphones' : ''}</small></span><span class="switch"></span>`);
   tg.setAttribute('aria-pressed', String(ls.on));
   tg.addEventListener('click', () => {
@@ -1465,8 +1516,7 @@ function renderMusic(el) {
 /* ─── Sound ─── */
 
 function renderSound(el) {
-  el.append(head('Sound', 'space, colour, touch'));
-  el.append(recordSection());
+  el.append(head('Sound', 'volume, space, colour, look'));
   const vol = section('Volume');
   vol.append(control({ id: 'volume', label: 'Master', type: 'range', min: 0, max: 1, step: 0.01, fmt: (v) => `${Math.round(v * 100)}%` },
     prefs.volume, (v) => { prefs.volume = v; engine.setVolume(v); if (sleepEnd) engine.scheduleSleep((sleepEnd - Date.now()) / 1000, fadeSecs()); save(); }));
@@ -1478,7 +1528,7 @@ function renderSound(el) {
   for (const p of touch.params) ts.append(control(p, state.g[p.id], (v) => setGlobal(p.id, v), `g.${p.id}`));
   el.append(ts);
 
-  const vs = section('Visuals', null, () => {
+  const vs = section('Look', null, () => {
     prefs.vp = randomize(VISUAL_PARAMS, seeded(newSeed()), prefs.vp);
     applyVisualPrefs();
     renderSheet();
@@ -1500,8 +1550,10 @@ function renderSound(el) {
     });
     pal.append(b);
   }
-  vs.append(h('span', 'choice-label', 'Palette'), pal);
+  vs.prepend(h('span', 'choice-label', 'Palette'), pal); // colour first, then the finer controls
+  vs.insertBefore(vs.querySelector('.section-title'), vs.firstChild);
   el.append(vs);
+  el.append(recordSection());
 
   const perf = section('Battery');
   perf.append(chips([{ value: 'saver', label: 'Saver' }, { value: 'balanced', label: 'Balanced' }, { value: 'smooth', label: 'Smooth' }], prefs.quality, (v) => {
@@ -1612,8 +1664,8 @@ function fmt(ms) {
 
 function updateTimerStatus() {
   const el = $('.timer-status');
-  if (el) el.textContent = sleepEnd ? `stops in ${fmt(sleepEnd - Date.now())}${winding ? ' · winding down' : ''}` : 'no timer · plays until you stop it';
-  $('#sleep-left').textContent = sleepEnd ? String(Math.ceil((sleepEnd - Date.now()) / 60000)) : '';
+  if (el) el.textContent = sleepEnd ? `${fmt(sleepEnd - Date.now())} left${winding ? ' · winding down' : ''}` : '';
+  $('#sleep-left').textContent = sleepEnd ? `${Math.ceil((sleepEnd - Date.now()) / 60000)}m` : '';
 }
 
 let lastTick = Date.now();
@@ -1772,6 +1824,7 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
 /* ─────────────────────────── boot ─────────────────────────── */
 
 applyVisualPrefs();
+if (prefs.knowsTokens) document.body.classList.add('knows');
 applyScene(state, { animate: false, remember: false });
 booted = true;
 bumpIdle();

@@ -32,7 +32,7 @@ export const MOODS = [
     likes: { birds: 3, stream: 3, keys: 2.5, pad: 2, flute: 2, wind: 1, rain: 1, marimba: 1.5, wood: 1.2, handdrum: 1 } },
   { id: 'sacred', name: 'Sacred', palettes: ['sand', 'ember', 'plum'], modes: ['insen', 'hirajoshi', 'hijaz', 'phrygian', 'dorian'], energy: [0, 0.35],
     likes: { bowls: 3, drone: 3, choir: 2.5, flute: 1.5, bells: 1.5, fire: 1, pulse: 1, strings: 1 } },
-  { id: 'celestial', name: 'Celestial', palettes: ['plum', 'jade', 'night', 'plum'], modes: ['lydian', 'whole', 'ionian', 'majpent'], energy: [0, 0.45],
+  { id: 'celestial', name: 'Celestial', palettes: ['plum', 'jade', 'night', 'plum'], modes: ['lydian', 'ionian', 'majpent', 'lydian'], energy: [0, 0.45],
     likes: { shimmer: 3, pad: 3, choir: 2, drone: 2, bells: 2, strings: 2, arp: 1.5, binaural: 1 } },
   { id: 'stormy', name: 'Storm', palettes: ['fog', 'night', 'tide'], modes: ['aeolian', 'phrygian', 'dorian', 'minpent', 'harmonic'], energy: [0.1, 0.5],
     likes: { rain: 3, thunder: 2.5, wind: 2, drone: 2, pad: 2, piano: 1.5, strings: 1.5, bass: 1 } },
@@ -46,7 +46,7 @@ export const MOODS = [
     likes: { handdrum: 3, drone: 3, wood: 2, flute: 2, bowls: 1.5, fire: 1.5, shaker: 1.5, choir: 1, pulse: 1 } },
   { id: 'lofi', name: 'Lo-fi', palettes: ['rose', 'paper', 'fog', 'sand'], modes: ['dorian', 'ionian', 'mixolydian', 'aeolian'], energy: [0.45, 0.8],
     likes: { piano: 3, kick: 2.5, shaker: 2, bass: 2.5, rain: 2, keys: 1.5, pad: 1.5, wood: 1 }, g: { warmth: [0.4, 0.8], wow: [0.25, 0.6], bright: [0.3, 0.55], swing: [0.2, 0.45], complexity: [0.5, 0.95] } },
-  { id: 'glacial', name: 'Glacial', palettes: ['frost', 'fog', 'tide', 'slate'], modes: ['lydian', 'majpent', 'ionian', 'whole'], energy: [0, 0.3],
+  { id: 'glacial', name: 'Glacial', palettes: ['frost', 'fog', 'tide', 'slate'], modes: ['lydian', 'majpent', 'ionian', 'yo'], energy: [0, 0.3],
     likes: { strings: 2.5, shimmer: 2.5, pad: 2, wind: 2, bells: 1.5, keys: 1.5, drone: 1.5, noise: 0.8 } },
   { id: 'run', name: 'Running', palettes: ['ember', 'slate', 'paper', 'dusk'], modes: ['dorian', 'aeolian', 'minpent', 'mixolydian', 'ionian'], energy: [0.85, 0.95],
     likes: { kick: 4, shaker: 3, bass: 3, arp: 2.5, pad: 2, handdrum: 1.5, strings: 1.2, keys: 1, wood: 0.8, rain: 0.5 },
@@ -113,6 +113,9 @@ function chooseLayers(r, mood, energy, rhythmMode) {
   const texture = [...byGroup('nature'), ...byGroup('mind')];
   const nt = r.chance(0.8) ? r.int(1, 2) : 0;
   for (let i = 0; i < nt; i++) chosen.add(r.weighted(texture, texture.map((id) => w(id) * (id === 'binaural' ? 0.4 : 1))));
+  // seven layers at most: past that the mix turns to soup. Weather goes first, then extra percussion.
+  const order = [...texture, 'wood', 'handdrum', 'pulse', 'shaker'];
+  for (const id of order) if (chosen.size > 7 && chosen.has(id)) chosen.delete(id);
   return chosen;
 }
 
@@ -135,7 +138,9 @@ function makeRunnable(g, layers, r, bpm) {
   g.meter = '4/4';
   g.beat = true;
   g.halfTime = true;
-  g.pump = r.float(0.1, 0.3);
+  g.pump = r.float(0.3, 0.4);
+  // a tight room: short reverb, echoes that don't blur the steps, bright enough for the hats
+  Object.assign(g, { revSize: Math.min(g.revSize, 0.35), revMix: Math.min(g.revMix, 0.45), revPre: Math.max(g.revPre, 0.5), bright: Math.max(g.bright, 0.78), drift: 0 });
   // Harmony you can run to: one repeating four-chord loop, each chord held
   // for about twenty seconds, no key changes, no surprises.
   Object.assign(g, { prog: 'loop', loopLen: 4, chordBars: 8, repetition: 1, modulate: 0 });
@@ -143,8 +148,8 @@ function makeRunnable(g, layers, r, bpm) {
   Object.assign(g, { swing: 0, humanize: 0.02, dlyDiv: r.pick([0.5, 0.5, 1, 0.25]) });
   g.density = Math.min(g.density, 0.5);
   const on = (id, p) => { layers[id] = { on: true, p: { ...layers[id].p, ...p } }; };
-  on('kick', { vol: 0.62, steps: 16, hits: 4, rotate: 0, prob: 1, ghost: 0, punch: r.float(0.5, 0.8), click: r.float(0.3, 0.6), decay: r.float(0.25, 0.4), pitch: r.float(46, 58) });
-  on('shaker', { vol: 0.48, steps: 16, hits: 4, rotate: 2, prob: 1, ghost: 0.12, kind: r.pick(['hat', 'shaker', 'hat']), decay: r.float(0.6, 1.2), open: r.float(0, 0.15) });
+  on('kick', { vol: 0.62, rev: 0, dly: 0, steps: 16, hits: 4, rotate: 0, prob: 1, ghost: 0, punch: r.float(0.5, 0.8), click: r.float(0.3, 0.6), decay: r.float(0.25, 0.4), pitch: r.float(46, 58) });
+  on('shaker', { vol: 0.48, tone: 0.95, rev: 0.1, dly: 0, steps: 16, hits: 4, rotate: 2, prob: 1, ghost: 0.12, kind: r.pick(['hat', 'shaker', 'hat']), decay: r.float(0.6, 1.2), open: r.float(0, 0.15) });
   on('bass', { vol: 0.5, pattern: r.pick(['pulse', 'pulse', 'roots', 'synco']), glide: r.float(0, 0.15) });
   if (layers.handdrum.on) Object.assign(layers.handdrum.p, { prob: 1, steps: 16 });
   layers.binaural.on = false;
@@ -152,7 +157,12 @@ function makeRunnable(g, layers, r, bpm) {
 
 export function runify(state, cadence, seed) {
   const next = structuredClone(state);
-  if (next.mood !== 'run') next.prevMood = next.mood;
+  if (next.mood !== 'run') {
+    next.prevMood = next.mood;
+    // remember the room, to give it back when the run ends
+    const { revSize, revMix, revPre, bright, drift, pump } = next.g;
+    next.preRun = { revSize, revMix, revPre, bright, drift, pump };
+  }
   next.mood = 'run';
   makeRunnable(next.g, next.layers, seeded(seed), cadence);
   // makeRunnable assumes a freshly generated scene; keep the user's other choices
@@ -167,6 +177,8 @@ export function unrun(state) {
   next.g.bpm = Math.round(clamp(next.g.bpm / 2, 50, 96));
   next.layers.kick.on = false;
   next.layers.shaker.on = false;
+  if (next.preRun) Object.assign(next.g, next.preRun);
+  delete next.preRun;
   return next;
 }
 
@@ -191,6 +203,9 @@ export function generateScene(seed, opts = {}) {
   }
   // a little more drive in rhythmic moods
   if (layers.kick.on && energy > 0.6) layers.kick.p.hits = r.pick([4, 4, 3, 2]);
+  // two melodies take turns instead of talking over each other
+  if (LAYERS.filter((d) => d.group === 'melody' && layers[d.id].on).length > 1) g.callResponse = true;
+  if (layers.bass.on) layers.bass.p.oct = 0;
   if (mood.id === 'run') makeRunnable(g, layers, r, opts.bpm);
 
   return {
@@ -332,6 +347,7 @@ export function normalize(s) {
     tagline: String(s?.tagline || '').slice(0, 80),
     mood: MOOD_BY_ID[s?.mood] ? s.mood : 'oceanic',
     prevMood: MOOD_BY_ID[s?.prevMood] ? s.prevMood : undefined,
+    preRun: s?.preRun && typeof s.preRun === 'object' ? Object.fromEntries(Object.entries(s.preRun).filter(([, v]) => Number.isFinite(v))) : undefined,
     energy: clamp(Number(s?.energy) || 0.3, 0, 1),
     seed: s?.seed >>> 0,
     palette: paletteId(s?.palette),
@@ -357,6 +373,7 @@ const b64 = {
 export function encodeScene(s) {
   const data = {
     v: 2, n: s.name, t: s.tagline, mo: s.mood, e: Math.round(s.energy * 100), p: s.palette, r: s.root, m: s.mode,
+    pm: s.prevMood, sd: s.seed, pr: s.preRun,
     a: s.a4, j: s.just ? 1 : 0,
     g: pack(s.g, GLOBAL_PARAMS),
     l: LAYERS.map((d, i) => (s.layers[d.id].on ? [i, ...pack(s.layers[d.id].p, d.schema)] : null)).filter(Boolean),
@@ -376,6 +393,7 @@ export function decodeScene(str) {
     }
     return normalize({
       name: d.n, tagline: d.t, mood: d.mo, energy: (d.e ?? 30) / 100, palette: d.p, root: d.r, mode: d.m,
+      prevMood: d.pm, seed: d.sd, preRun: d.pr,
       a4: d.a, just: d.j, g: unpack(d.g, GLOBAL_PARAMS), layers,
     });
   } catch {

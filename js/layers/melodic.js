@@ -29,9 +29,11 @@ export class Arp extends Melodic {
   onStep(info) { this.arpStep(info); }
   play(t, f, v, dur) {
     const { ctx, p } = this;
+    // bright waves get a detuned twin and tamer resonance, so fast lines stay sweet
+    const hard = p.wave === 'square' || p.wave === 'sawtooth';
     const o = osc(ctx, p.wave, f);
-    const lp = filter(ctx, 'lowpass', 400, 0.7 + p.reso * 10);
-    lp.frequency.setValueAtTime(600 + p.pluck * 5000 * v, t);
+    const lp = filter(ctx, 'lowpass', 400, 0.7 + Math.min(p.reso, hard ? 0.4 : 1) * 10);
+    lp.frequency.setValueAtTime(600 + p.pluck * (hard ? 3200 : 5000) * v, t);
     lp.frequency.setTargetAtTime(350 + (1 - p.pluck) * 1500, t + 0.005, 0.05 + dur * 0.3);
     const amp = gain(ctx, 0);
     const lvl = 0.22 * v * (p.wave === 'square' || p.wave === 'sawtooth' ? 0.6 : 1);
@@ -40,7 +42,14 @@ export class Arp extends Melodic {
     amp.gain.setTargetAtTime(0, t + Math.max(0.03, dur), 0.07);
     o.connect(lp).connect(amp).connect(this.bus);
     o.start(t); o.stop(t + dur + 0.6);
-    disposeOnEnd(o, [o, lp, amp]);
+    const nodes = [o, lp, amp];
+    if (hard && !this.e.lite) {
+      const o2 = osc(ctx, p.wave, f, 6);
+      o2.connect(lp);
+      o2.start(t); o2.stop(t + dur + 0.6);
+      nodes.push(o2);
+    }
+    disposeOnEnd(o, nodes);
     if (v > 0.9) this.note(t, f, undefined, 0.3, 'arp');
   }
 }

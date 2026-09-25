@@ -49,7 +49,7 @@ export class Recorder {
       };
       this.node = sp;
     }
-    this.e.comp.connect(this.node);
+    (this.e.out || this.e.comp).connect(this.node);
     this.node.connect(sink);
   }
 

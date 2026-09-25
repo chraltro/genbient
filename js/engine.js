@@ -107,7 +107,7 @@ export class Engine {
     this.sculpt = filter(ctx, 'lowpass', 20000, 0.5);
     this.arr = filter(ctx, 'lowpass', 20000, 0.8); // swept by the running arranger
     this.warm = ctx.createWaveShaper();
-    this.warm.oversample = 'none';
+    this.warm.oversample = '2x'; // saturation without aliasing on hats and bells
     this.warmOut = gain(ctx, 1);
     this.wow = ctx.createDelay(0.1);
     this.wow.delayTime.value = 0.012;
@@ -141,12 +141,20 @@ export class Engine {
     this.comp.threshold.value = -16;
     this.comp.knee.value = 12;
     this.comp.ratio.value = 3.5;
-    this.comp.attack.value = 0.03;
-    this.comp.release.value = 0.5;
+    this.comp.attack.value = 0.015;
+    this.comp.release.value = 0.35;
+    // a safety limiter after the glue compressor: no clipping when layers pile up
+    this.limit = ctx.createDynamicsCompressor();
+    this.limit.threshold.value = -2;
+    this.limit.knee.value = 0;
+    this.limit.ratio.value = 20;
+    this.limit.attack.value = 0.001;
+    this.limit.release.value = 0.08;
+    this.out = this.limit; // what the recorder captures
     this.master = gain(ctx, 0);
     this.mix.connect(this.lowcut).connect(this.tone).connect(this.sculpt).connect(this.arr).connect(this.warm).connect(this.warmOut)
       .connect(this.wow).connect(this.chIn);
-    this.chOut.connect(this.drive).connect(this.comp).connect(this.master).connect(ctx.destination);
+    this.chOut.connect(this.drive).connect(this.comp).connect(this.limit).connect(this.master).connect(ctx.destination);
 
     this.analyser = ctx.createAnalyser();
     this.analyser.fftSize = 1024;
@@ -190,7 +198,7 @@ export class Engine {
     this.dL.connect(this.pL).connect(this.dlyOut);
     this.dR.connect(this.pR).connect(this.dlyOut);
     this.dlyOut.connect(this.mix);
-    this.dlyToRev = gain(ctx, 0.45);
+    this.dlyToRev = gain(ctx, 0.25);
     this.dlyOut.connect(this.dlyToRev).connect(this.revIn);
 
     this.noise = makeNoise(ctx);
@@ -263,6 +271,7 @@ export class Engine {
       }
     }
 
+    if (!(this.guardAt > now)) { this.lowGuard(now); this.guardAt = now + 1; }
     if (now >= this.nextDriftAt) {
       const d = this.g.drift;
       glide(this.tone.frequency, this.toneHz() * rand(1 - 0.4 * d, 1 + 0.25 * d), now, rand(3, 8));
@@ -291,6 +300,7 @@ export class Engine {
       // running: a chord every 4 bars, so one pass of a progression fills a 16-bar section
       if (this.g.song && this.g.halfTime) cb = 4;
       this.cbNow = cb;
+      this.chordSecs = cb * m.steps * dur; // how long each chord lasts, for pads to fit their fades to
       if (this.bar > 0 && this.bar % cb === 0) {
         this.advanceHarmony(this.nextStep);
         chordStart = true;
@@ -331,6 +341,25 @@ export class Engine {
     this.nextStep += dur;
   }
 
+  // Keep the low end for the kick and bass: when there's a beat or a bass,
+  // everything else gets out of the way below it.
+  lowGuard(t) {
+    const L = this.layers;
+    const bass = L.bass.on;
+    const beat = this.g.beat && (L.kick.on || bass);
+    for (const id in L) {
+      const l = L[id];
+      if (!l.hpf || !l.on) continue;
+      const grp = l.def.group;
+      let f = 20;
+      if (['pad', 'choir', 'strings'].includes(id)) f = beat ? 220 : 140;
+      else if (id === 'drone') f = bass ? 100 : 25;
+      else if (grp === 'nature') f = this.g.beat ? 120 : 25;
+      else if (grp === 'melody') f = beat ? 150 : 40;
+      if (Math.abs((l.hpTarget || 20) - f) > 1) { l.hpTarget = f; glide(l.hpf.frequency, f, t, 1.5); }
+    }
+  }
+
   // Humanised time: never early, a little late.
   human(t) { return t + Math.random() * this.g.humanize * 0.02; }
 
@@ -369,7 +398,7 @@ export class Engine {
 
   syncHarmonyOpts() {
     const g = this.g;
-    Object.assign(this.harmony.opts, { prog: g.song ? 'loop' : g.prog, complexity: g.complexity, sus: g.sus, inversions: g.inversions, loopLen: g.loopLen, song: !!g.song });
+    Object.assign(this.harmony.opts, { prog: g.song ? 'loop' : g.prog, complexity: g.complexity, sus: g.sus, inversions: g.inversions, loopLen: g.loopLen, song: !!g.song, fourBar: !!(g.song && g.halfTime) });
   }
 
   advanceHarmony(t) {
@@ -443,6 +472,8 @@ export class Engine {
       glide(this.wowG.gain, g.wow * 0.0025, t, tc);
       glide(this.flutG.gain, g.wow * 0.00025, t, tc);
     }
+    // the glue compressor recovers between beats when there are beats
+    if (is('beat', 'bpm')) this.comp.release.setTargetAtTime(g.beat ? clamp(30 / g.bpm, 0.1, 0.3) : 0.35, t, 0.1);
     if (is('chorus')) glide(this.chWet.gain, this.lite ? 0 : g.chorus * 0.8, t, tc);
     if (is('revMix')) glide(this.revOut.gain, 0.1 + g.revMix * 1.2, t, tc);
     if (is('revPre')) glide(this.pre.delayTime, g.revPre * 0.15, t, tc);
@@ -451,7 +482,8 @@ export class Engine {
       const q = 60 / g.bpm;
       const dt = clamp(q * g.dlyDiv, 0.05, 3.9);
       glide(this.dL.delayTime, dt, t, immediate ? 0.01 : 1.2);
-      glide(this.dR.delayTime, clamp(dt * lerp(1, 1.5, g.dlySpread), 0.05, 3.9), t, immediate ? 0.01 : 1.2);
+      // the right repeat lands on the grid too: the same time, or dotted
+      glide(this.dR.delayTime, clamp(dt * (g.dlySpread > 0.6 ? 1.5 : 1), 0.05, 3.9), t, immediate ? 0.01 : 1.2);
       if (this.pL.pan) glide(this.pL.pan, -g.dlySpread, t, tc);
       if (this.pR.pan) glide(this.pR.pan, g.dlySpread, t, tc);
     }

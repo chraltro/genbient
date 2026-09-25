@@ -95,7 +95,7 @@ export const METERS = {
 export const GLOBAL_SECTIONS = [
   {
     id: 'time', title: 'Tempo & groove', params: [
-      T('beat', 'Rhythm', true, { keep: true, hint: 'drums, pulse and patterned bass' }),
+      T('beat', 'Beat', true, { keep: true, hint: 'drums, pulse and patterned bass' }),
       T('halfTime', 'Half-time music', false, { keep: true, hint: 'drums at full tempo, chords and melodies at half' }),
       R('bpm', 'Tempo', 40, 200, 72, { step: 1, fmt: (v) => `${v} bpm`, gen: [52, 96] }),
       C('meter', 'Meter', Object.keys(METERS).map((m) => [m, m]), '4/4', { gen: ['4/4', '4/4', '3/4', '6/8', '5/4', '7/8'] }),
@@ -107,7 +107,7 @@ export const GLOBAL_SECTIONS = [
   },
   {
     id: 'harmony', title: 'Harmony', params: [
-      T('groove', 'Fresh bass', false, { gen: 0, keep: true, hint: 'a syncopated bass line at the drum tempo' }),
+      T('groove', 'Groove bass', false, { gen: 0, keep: true, hint: 'a syncopated bass line at the drum tempo' }),
       T('song', 'Song chords', false, { gen: 0, keep: true, hint: 'progressions from real songs, verse and chorus' }),
       C('prog', 'Progression', [['loop', 'Looping'], ['drift', 'Modal drift'], ['func', 'Functional'], ['circle', 'Circle of fifths'],
         ['pedal', 'Pedal point'], ['two', 'Two-chord sway'], ['random', 'Wandering'], ['still', 'Static']], 'loop'),

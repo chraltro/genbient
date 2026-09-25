@@ -33,9 +33,10 @@ export class Layer {
 
     const ctx = this.ctx;
     this.bus = gain(ctx, 0);
+    this.hpf = filter(ctx, 'highpass', 20, 0.7); // moved by the engine's low guard
     this.filt = filter(ctx, 'lowpass', this.toneHz(), 0.5);
     this.panner = makePanner(ctx, this.p.pan);
-    this.bus.connect(this.filt).connect(this.panner);
+    this.bus.connect(this.hpf).connect(this.filt).connect(this.panner);
     this.panner.connect(def.group === 'harmony' ? engine.pumpIn : engine.dryIn);
     this.revSend = gain(ctx, (def.revScale ?? 1) * this.p.rev);
     this.panner.connect(this.revSend).connect(engine.revIn);
@@ -124,11 +125,14 @@ export class Sustained extends Layer {
     this.voices = [];
     this.voices.push(this.makeVoice(t, this.p.attack ?? 6));
   }
+  // Fades fit the chord: a new chord arrives within 40% of its length and
+  // the old one is mostly gone by then, so changes don't smear.
   onChord(t) {
     if (!this.running) return;
-    for (const v of this.voices) this.release(v, t, this.p.release ?? 9);
+    const len = this.e.chordSecs || 16;
+    for (const v of this.voices) this.release(v, t, Math.min(this.p.release ?? 9, Math.max(1.5, len * 0.75)));
     this.voices = this.voices.filter((v) => !v.dead);
-    this.voices.push(this.makeVoice(t, Math.min(this.p.attack ?? 6, 8)));
+    this.voices.push(this.makeVoice(t, Math.min(this.p.attack ?? 6, 8, Math.max(0.4, len * 0.4))));
   }
   release(v, t, dur) {
     if (v.releasing) return;
@@ -203,12 +207,20 @@ export class Melodic extends Layer {
     this.play(this.e.human(info.t), f, this.vel(v), seconds);
   }
 
+  /*
+   * Motifs are sung in four-phrase sentences: the idea, the idea again, a
+   * variation, then an answer that settles on a long home note and rests.
+   * Pitches belong to the key (landing on chord tones where it matters),
+   * so the tune stays itself as the chords move under it.
+   */
   motifStep(info) {
     const g = this.g;
     const len = g.motifBars * info.spb;
     const pos = info.step % len;
     if (pos === 0 || !this.motif) {
       this.phrase++;
+      this.cadence = this.phrase % 4 === 3 && len >= 8;
+      this.home = chance(0.7) ? 0 : 4;
       const fresh = !this.motif || this.motif.steps !== len;
       if (fresh || (this.phrase > 0 && !chance(g.repetition))) {
         this.motif = fresh || chance(0.3)
@@ -220,13 +232,26 @@ export class Melodic extends Layer {
           this.index.get(n.s).push(n);
         }
       }
-      this.resting = this.phrase > 0 && chance(g.rests * 0.55);
+      this.resting = this.phrase > 0 && !this.cadence && chance(g.rests * 0.4);
       if (g.callResponse && this.phrase % 2 !== (this.def.side ?? 0)) this.resting = true;
     }
     if (this.resting) return;
+    const half = Math.floor(len / 2);
+    if (this.cadence && pos >= half) {
+      // the answer: one long note on home (or the fifth), then silence
+      if (pos === half) this.playKey(info, this.home, 0.9, half * 0.85 * info.dur, true);
+      return;
+    }
     const hits = this.index && this.index.get(pos);
     if (!hits) return;
-    for (const n of hits) this.playDeg(info, n.d, n.v, n.len * info.dur * (this.p.legato ?? 1), n.snap);
+    for (const n of hits) this.playKey(info, n.d, n.v, n.len * info.dur * (this.p.legato ?? 1), n.snap);
+  }
+
+  // A degree of the key, pulled onto the nearest chord tone when it should rest there.
+  playKey(info, d, v, seconds, snap) {
+    const h = this.h;
+    const deg = snap ? h.nearestChordTone(d) : d;
+    this.play(this.e.human(info.t), h.hz(deg, this.octave), this.vel(v), seconds);
   }
 
   arpStep(info) {
@@ -234,7 +259,8 @@ export class Melodic extends Layer {
     if (info.step % rate !== 0) return;
     if (!chance(0.35 + this.dens * 0.65)) return;
     const h = this.h;
-    const span = Math.round(this.p.octaves ?? 2);
+    const hard = this.p.wave === 'square' || this.p.wave === 'sawtooth';
+    const span = Math.min(Math.round(this.p.octaves ?? 2), hard ? 2 : 3); // bright arps stay within two octaves
     const tones = [];
     for (let o = 0; o < span; o++) for (const d of h.chord.tones) tones.push(d + o * h.len);
     if (!this.seq || this.seqLen !== tones.length || this.seqShape !== this.p.shape) {
@@ -251,7 +277,10 @@ export class Melodic extends Layer {
     const a = accent(info.sib, info.groups);
     const p = a >= 0.8 ? 0.25 + this.dens * 0.6 : a >= 0.5 ? this.dens * 0.35 : this.dens * 0.08;
     if (!chance(p)) return;
-    this.walkDeg = clamp(this.walkDeg + pick([-2, -1, -1, 1, 1, 2, chance(this.g.leap) ? 4 : -3]), -3, 3 + Math.round(this.g.range * 6));
+    // wander, but feel the pull of home once far from it
+    const far = Math.abs(this.walkDeg) > 4;
+    const step = far && chance(0.7) ? -Math.sign(this.walkDeg) * pick([1, 2]) : pick([-2, -1, -1, 1, 1, 2, chance(this.g.leap) ? 4 : -3]);
+    this.walkDeg = clamp(this.walkDeg + step, -3, 3 + Math.round(this.g.range * 6));
     this.playDeg(info, this.walkDeg, a, info.dur * rand(2, 6), a >= 0.8 || !chance(this.g.tension));
   }
 

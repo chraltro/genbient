@@ -16,6 +16,9 @@ const TEX_ROLE = [...TEXTURES, 'night', 'fire', 'thunder', 'noise']; // anything
 // The sound of the fresh bass: a bright saw with a snappy filter and a little grit.
 export const FRESH_BASS = { pattern: 'groove', pluck: 0.5, drive: 0, length: 0.8, tone: 0.75, oct: 0, vol: 0.55 };
 
+// which part of a song each section plays
+const partFor = (type) => (type === 'lift' || type === 'peak' ? 'chorus' : type === 'breakdown' ? 'bridge' : 'verse');
+
 export const SECTIONS = {
   intro:     { name: 'Intro',     energy: 0.3,  bars: [16],     next: { groove: 1 } },
   groove:    { name: 'Groove',    energy: 0.6,  bars: [32, 16], next: { lift: 5, breakdown: 2, groove: 1.5 } },
@@ -46,6 +49,7 @@ export class Conductor {
   start() {
     this.active = true;
     this.lock = null;
+    this.upcoming = null;
     this.section = null;
     this.endBar = null;
     this.history = [];
@@ -55,18 +59,20 @@ export class Conductor {
 
   stop() {
     this.active = false;
-    if (this.e.harmony?.song) this.e.harmony.song.locked = false;
+    const song = this.e.harmony?.song;
+    if (song) { song.locked = false; if (song.part !== 'verse') this.e.harmony.setPart('verse'); song.locked = false; song.passes = -1; }
     if (this.ctx) glide(this.e.arr.frequency, 20000, this.ctx.currentTime, 0.5);
     this.host.onSection(null);
   }
 
-  skip() { if (this.active && this.nextBar != null) this.endBar = this.nextBar; }
+  skip() { if (this.active && this.nextBar != null) this.endBar = Math.ceil(this.nextBar / 4) * 4; }
 
   // jump to a particular section at the next bar (intervals use this)
   force(type) {
     if (!this.active || this.nextBar == null) return;
     this.upcoming = type;
-    this.endBar = this.nextBar;
+    this.endBar = Math.ceil(this.nextBar / 4) * 4;
+    if (this.e.g.song) this.e.harmony.queuePart(partFor(type));
   }
 
   onBar({ bar, t, dur, beat, step }) {
@@ -80,6 +86,7 @@ export class Conductor {
     }
     const left = this.endBar - bar;
     if (left === 1 && !this.upcoming) this.upcoming = this.pickNext();
+    if (left === 1 && this.e.g.song) this.e.harmony.queuePart(partFor(this.upcoming));
     const nextE = this.upcoming ? SECTIONS[this.upcoming].energy : 0;
     const cur = SECTIONS[this.section];
     // a drum fill in the last bar before a rise in energy
@@ -126,7 +133,7 @@ export class Conductor {
     const kick = type === 'breakdown'
       ? { vol: 0.48 * kd, punch: 0.3, click: 0.15, tone: 0.45 } // softer, but the step stays clear
       : { vol: lerp(0.5, 0.6, e) * kd, punch: lerp(0.45, 0.8, e), click: lerp(0.25, 0.55, e), tone: 0.6 };
-    set('kick', true, { steps: 16, hits: 4, rotate: 0, prob: 1, ghost: 0, ...kick }, barDur * 0.5);
+    set('kick', true, { steps: 16, hits: 4, rotate: 0, prob: 1, ghost: 0, rev: 0, dly: 0, ...kick }, barDur * 0.5);
 
     let hats;
     if (type === 'breakdown') hats = { hits: 4, rotate: 0, ghost: 0.05, vol: 0.32, open: 0 }; // on the beat: keeps the step
@@ -134,7 +141,7 @@ export class Conductor {
     else if (e >= 0.95) hats = { hits: pick([16, 12, 8]), rotate: 0, prob: 1, ghost: 0.2, vol: 0.46, open: rand(0.1, 0.25) };
     else if (e >= 0.75) hats = { hits: pick([8, 16, 6]), rotate: pick([0, 2]), prob: 1, ghost: 0.15, vol: 0.44, open: rand(0, 0.15) };
     else hats = { hits: pick([4, 8]), rotate: 2, prob: 1, ghost: 0.12, vol: 0.42, open: rand(0, 0.1) };
-    set('shaker', true, { steps: 16, prob: 1, kind: st.layers.shaker.p.kind, ...hats, vol: hats.vol * kd }, barDur * 0.5);
+    set('shaker', true, { steps: 16, prob: 1, kind: st.layers.shaker.p.kind, tone: 0.95, rev: 0.1, dly: 0, ...hats, vol: hats.vol * kd }, barDur * 0.5);
 
     const wantHand = e >= 0.75 || (type === 'groove' && chance(0.35));
     if (wantHand) {
@@ -162,7 +169,7 @@ export class Conductor {
     if (!padNow.length || (this.padSince >= 3 && chance(0.5)) || (type === 'breakdown' && chance(0.4))) {
       const next = pick(PADS.filter((id) => !padNow.includes(id)));
       padNow.forEach((id) => set(id, false, null, barDur * 3));
-      set(next, true, this.freshParams(next, { vol: rand(0.38, 0.48) }), barDur * 3);
+      set(next, true, this.freshParams(next, { vol: rand(0.38, 0.48), oct: 0 }), barDur * 3);
       this.padSince = 0;
     }
 
@@ -185,7 +192,8 @@ export class Conductor {
       if (!pool.length) break;
       const id = pick(pool);
       const style = type === 'breakdown' && id === 'piano' ? 'chords' : pick(['motif', 'motif', 'motif', 'arp', 'walk']);
-      set(id, true, this.freshParams(id, { vol: rand(0.36, 0.48) * (leads.length ? 0.85 : 1), style, density: rand(0.35, 0.65), oct: 0 }), barDur * 2);
+      // a new melody arrives on the downbeat, not creeping in
+      set(id, true, this.freshParams(id, { vol: rand(0.36, 0.48) * (leads.length ? 0.85 : 1), style, density: rand(0.35, 0.65), oct: 0 }), barDur / 4);
       leads.push(id);
     }
     // a new melody for everyone who stays
@@ -204,7 +212,7 @@ export class Conductor {
     const h = this.e.harmony;
     const song = !!this.e.g.song;
     // song chords: the section chooses the part of the song
-    if (song) h.setPart(type === 'lift' || type === 'peak' ? 'chorus' : type === 'breakdown' ? 'bridge' : 'verse');
+    if (song) h.setPart(partFor(type));
     else if (type === 'breakdown' && chance(0.5)) h.newLoop();
     if (!song && type === 'peak' && prev === 'build' && chance(0.18)) {
       h.setKey((h.root + 2) % 12, h.mode);

@@ -30,18 +30,38 @@ export class Kick extends Drum {
     R('punch', 'Punch', 0, 1, 0.35),
     R('click', 'Beater', 0, 1, 0.2),
   ];
+  // In tune with the song: the key's root or fifth nearest the chosen pitch.
+  tuned() {
+    const h = this.e.harmony;
+    const want = this.p.pitch;
+    let best = want;
+    for (const d of [0, 4]) {
+      for (let o = 0; o <= 2; o++) {
+        const f = h.hz(d, o);
+        if (Math.abs(Math.log2(f / want)) < Math.abs(Math.log2(best / want)) || best === want) best = f;
+      }
+    }
+    return Math.abs(Math.log2(best / want)) < 0.35 ? best : want;
+  }
   hit(t, v) {
     const { ctx, p } = this;
-    const o = osc(ctx, 'sine', p.pitch);
-    o.frequency.setValueAtTime(p.pitch * (1.5 + p.punch * 2.5), t);
-    o.frequency.exponentialRampToValueAtTime(p.pitch, t + 0.03 + p.punch * 0.05);
+    const f = this.tuned();
+    const o = osc(ctx, 'sine', f);
+    o.frequency.setValueAtTime(f * (1.5 + p.punch * 2.5), t);
+    o.frequency.exponentialRampToValueAtTime(f, t + 0.03 + p.punch * 0.05);
     const amp = gain(ctx, 0);
     pluckEnv(amp.gain, t, 0.9 * v, 0.004, p.decay);
     const sh = this.e.shaper(0.2 + p.punch * 0.3);
+    // a short body an octave up, so the pulse survives small speakers
+    const b = osc(ctx, 'triangle', f * 2);
+    const bg = gain(ctx, 0);
+    pluckEnv(bg.gain, t, 0.28 * v * (0.5 + p.punch * 0.5), 0.002, 0.045);
+    b.connect(bg).connect(sh);
     o.connect(amp).connect(sh).connect(this.bus);
     o.start(t); o.stop(t + p.decay + 0.1);
-    disposeOnEnd(o, [o, amp, sh]);
-    if (p.click > 0.02) noiseHit(this, t, { type: 'lowpass', freq: 2500, peak: 0.25 * p.click * v, decay: 0.012 });
+    b.start(t); b.stop(t + 0.12);
+    disposeOnEnd(o, [o, amp, sh, b, bg]);
+    if (p.click > 0.02) noiseHit(this, t, { type: 'bandpass', freq: 3500, q: 1, peak: 0.3 * p.click * v, decay: 0.01 });
     this.e.duck(t, v);
   }
 }

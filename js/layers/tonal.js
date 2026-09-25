@@ -114,7 +114,7 @@ export class Pad extends Sustained {
   cutoff() { return 300 + this.p.bright * this.p.bright * 4600; }
   makeVoice(t, attack) {
     const { ctx, h, p } = this;
-    const notes = h.voice(h.chord.tones, this.prev, { center: 57 + 12 * p.oct, spread: this.g.spread, lead: this.g.lead, count: Math.round(p.voices) });
+    const notes = h.voice(h.chord.tones, this.prev, { center: 57 + 12 * p.oct, spread: this.g.spread, lead: this.g.lead, count: Math.round(p.voices), floor: 50 });
     this.prev = notes;
     const out = gain(ctx, 0);
     out.gain.setValueAtTime(0, t);
@@ -178,7 +178,7 @@ export class Strings extends Sustained {
   ];
   makeVoice(t, attack) {
     const { ctx, h, p } = this;
-    const notes = h.voice(h.chord.tones, this.prev, { center: 62 + 12 * p.oct, spread: this.g.spread * 1.2, lead: this.g.lead, count: Math.round(p.voices) });
+    const notes = h.voice(h.chord.tones, this.prev, { center: 62 + 12 * p.oct, spread: this.g.spread * 1.2, lead: this.g.lead, count: Math.round(p.voices), floor: 52 });
     this.prev = notes;
     const out = gain(ctx, 0);
     out.gain.setValueAtTime(0, t);
@@ -187,17 +187,22 @@ export class Strings extends Sustained {
     const hp = filter(ctx, 'highpass', 180, 0.7);
     const body = filter(ctx, 'peaking', 700, 1.2);
     body.gain.value = 4;
-    const vib = osc(ctx, 'sine', rand(4.6, 5.6));
-    const vibG = gain(ctx, p.vibrato * 14);
-    vib.connect(vibG);
-    vib.start(t);
-    const srcs = [vib];
-    const nodes = [out, lp, hp, body, vib, vibG];
+    const srcs = [];
+    const nodes = [out, lp, hp, body];
     const players = this.e.lite ? 1 : 1 + Math.round(p.ensemble * 2);
     const norm = 0.16 / Math.sqrt(notes.length * players);
     notes.forEach((m, i) => {
       const f = h.freq(m);
       const pan = makePanner(ctx, (i / Math.max(1, notes.length - 1)) * 1.4 - 0.7);
+      // each note its own vibrato, easing in, so the section breathes rather than wobbles as one
+      const vib = osc(ctx, 'sine', rand(4.5, 5.8));
+      const vibG = gain(ctx, 0);
+      vibG.gain.setValueAtTime(0, t);
+      vibG.gain.linearRampToValueAtTime(p.vibrato * 14, t + 0.6 + rand(0, 0.4));
+      vib.connect(vibG);
+      vib.start(t);
+      srcs.push(vib);
+      nodes.push(vib, vibG);
       for (let k = 0; k < players; k++) {
         const o = osc(ctx, 'sawtooth', f, (k - (players - 1) / 2) * (4 + p.ensemble * 8) + rand(-2, 2));
         vibG.connect(o.detune);
@@ -246,11 +251,15 @@ export class Choir extends Sustained {
     const { ctx } = this;
     this.input = gain(ctx, 1);
     this.bank = [0, 1, 2].map((i) => {
-      const bp = filter(ctx, 'bandpass', VOWELS[1].f[i], [9, 12, 14][i]);
+      const bp = filter(ctx, 'bandpass', VOWELS[1].f[i], [6, 8, 10][i]);
       const g = gain(ctx, VOWELS[1].g[i]);
       this.input.connect(bp).connect(g).connect(this.bus);
       return { bp, g };
     });
+    // a warm dry path under the formants keeps the voices' body
+    this.dryLp = filter(ctx, 'lowpass', 1200, 0.6);
+    this.dryG = gain(ctx, 0.35);
+    this.input.connect(this.dryLp).connect(this.dryG).connect(this.bus);
     this.nextVowel = t;
     super.start(t);
   }
@@ -281,7 +290,7 @@ export class Choir extends Sustained {
   }
   makeVoice(t, attack) {
     const { ctx, h, p } = this;
-    const notes = h.voice(h.chord.tones, this.prev, { center: 55 + 12 * p.oct, spread: this.g.spread, lead: this.g.lead, count: Math.round(p.voices) });
+    const notes = h.voice(h.chord.tones, this.prev, { center: 55 + 12 * p.oct, spread: this.g.spread, lead: this.g.lead, count: Math.round(p.voices), floor: 50 });
     this.prev = notes;
     const out = gain(ctx, 0);
     out.gain.setValueAtTime(0, t);
@@ -293,24 +302,27 @@ export class Choir extends Sustained {
     const srcs = [vib];
     const nodes = [out, vib, vibG];
     const norm = 3 / Math.max(3, notes.length);
-    for (const m of notes) {
+    notes.forEach((m, i) => {
       const f = h.freq(m);
+      const pan = makePanner(ctx, notes.length > 1 ? (i / (notes.length - 1)) - 0.5 : 0); // voices spread across the stage
+      nodes.push(pan);
+      pan.connect(out);
       for (let k = 0; k < 3; k++) {
         const o = osc(ctx, 'sawtooth', f, (k - 1) * rand(6, 11));
         const gg = gain(ctx, 0.3 * norm);
         vibG.connect(o.detune);
-        o.connect(gg).connect(out);
+        o.connect(gg).connect(pan);
         o.start(t);
         srcs.push(o);
         nodes.push(o, gg);
       }
-    }
+    });
     out.connect(this.input);
     return { out, srcs, nodes };
   }
   stop() {
     super.stop();
-    const nodes = [this.input, ...this.bank.flatMap((b) => [b.bp, b.g])];
+    const nodes = [this.input, this.dryLp, this.dryG, ...this.bank.flatMap((b) => [b.bp, b.g])];
     setTimeout(() => nodes.forEach((n) => n.disconnect()), 2000);
   }
 }
@@ -476,8 +488,11 @@ export class Bass extends Layer {
   // Pitched so the root sits between 38 and 76 Hz: felt as much as heard.
   grooveStep(info, still = false) {
     const { p, h } = this;
-    const pos = (info.sib * 16) / info.spb;
-    if (pos !== Math.floor(pos)) return;
+    // patterns are written in sixteenths; a bar in another meter plays the
+    // first bar-length of them, and lead-ins and fills sit at the bar's end
+    const spb = info.spb;
+    const pos = info.sib % 16;
+    const end = spb - info.sib; // steps left in the bar, 1 = the last
     const calm = still || p.busy < 0.08; // breakdowns: one long note, dub style
     const S = calm ? BASS_STYLES.dub : BASS_STYLES[p.bstyle] || BASS_STYLES.dub;
     if (!this.bar || (info.sib === 0 && info.bar % 2 === 0) || this.barStyle !== S) {
@@ -488,31 +503,45 @@ export class Bass extends Layer {
     }
     if (info.sib === 0 && S.sweep) this.sweepCut = S.cut + 1600 * (0.5 - 0.5 * Math.cos((Math.PI * 2 * info.bar) / 16));
     const root = h.chord.deg;
-    const rf = h.hz(root, 1 + p.oct);
-    const k = rf < 38 ? 2 : rf > 76 ? 0.5 : 1;
+    // keep a root between 38 and 76 Hz, whatever chord it is
+    const fold = (d) => { const f = h.hz(d, 1 + p.oct); return f < 38 ? 2 : f > 76 ? 0.5 : 1; };
+    const k = fold(root);
     const hz = (d) => h.hz(d, 1 + p.oct) * k;
     const t = this.e.human(info.t);
     const step = info.dur;
     // into the next chord: a scale step, then a half step, below its root
-    if (!calm && S !== BASS_STYLES.psy && info.toChord === 1 && pos >= 14) {
+    if (!calm && S !== BASS_STYLES.psy && info.toChord === 1 && end <= 2) {
       const next = h.peekDegree();
-      const target = h.hz(next, 1 + p.oct) * k;
-      const f = pos === 14 ? h.hz(next - 1, 1 + p.oct) * k : target * Math.pow(2, -1 / 12);
+      const kn = fold(next);
+      const target = h.hz(next, 1 + p.oct) * kn;
+      const f = end === 2 ? h.hz(next - 1, 1 + p.oct) * kn : target * Math.pow(2, -1 / 12);
       if (f < target * 1.3) this.deep(t, f, 0.8, step * S.gap, S);
       return;
     }
     // a short fill at the end of every fourth bar
-    if (!calm && info.bar % 4 === 3 && pos >= 12 && p.busy > 0.4 && S !== BASS_STYLES.dub) {
-      const run = [root, root + 2, root + 4, root + h.len];
-      this.deep(t, hz(run[pos - 12]), 0.75 + (pos - 12) * 0.06, step * S.gap, S);
+    if (!calm && info.bar % 4 === 3 && end <= 4 && p.busy > 0.4 && S !== BASS_STYLES.dub) {
+      const run = [root, this.degAt(root, 3.5), this.degAt(root, 7), root + h.len];
+      this.deep(t, hz(run[4 - end]), 0.75 + (4 - end) * 0.06, step * S.gap, S);
       return;
     }
     const note = this.bar.find((n) => n[0] === pos);
     if (!note) return;
     const [, role, len, vel] = note;
-    const deg = { R: root, O: root + h.len, F: root + 4, 7: root + 6, 3: root + 2, g: root }[role];
+    // roles by sound, not by scale step, so pentatonic scales get a real fifth
+    const deg = { R: root, O: root + h.len, F: this.degAt(root, 7), 7: this.degAt(root, 10.5), 3: this.degAt(root, 3.5), g: root }[role];
     const ghost = role === 'g';
-    this.deep(t, hz(deg), ghost ? 0.35 : vel, step * (ghost ? 0.5 : len * S.gap), S);
+    this.deep(t, hz(deg), ghost ? 0.35 : vel, step * (ghost ? 0.5 : Math.min(len, end + 1) * S.gap), S);
+  }
+
+  // The scale degree above `root` closest to `semis` semitones up.
+  degAt(root, semis) {
+    const h = this.h;
+    let best = root, err = Infinity;
+    for (let d = root; d <= root + h.len; d++) {
+      const e = Math.abs(h.semis(d) - h.semis(root) - semis);
+      if (e < err) { err = e; best = d; }
+    }
+    return best;
   }
 
   // One note: a clean sine sub underneath, a body that can be dirty and
