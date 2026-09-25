@@ -27,7 +27,7 @@ const store = {
 };
 
 const prefs = Object.assign(
-  { volume: 0.85, journey: 0, breath: 'off', wake: false, mood: 'any', energy: null, filter: 'playing', quality: 'balanced', cadence: 165, runSong: true, runIntensity: 'steady', lite: false, recMax: 0, recFade: true, recLevel: true, intervals: 'off', pushCadence: 0 },
+  { volume: 0.85, journey: 0, breath: 'off', wake: false, mood: 'any', energy: null, filter: 'playing', quality: 'balanced', cadence: 165, runSong: true, runIntensity: 'steady', lite: false, recMax: 0, recFade: true, recLevel: true, intervals: 'off', pushCadence: 0, mode: 'listen' },
   store.get('prefs', {}),
 );
 prefs.vp = fill(prefs.vp, VISUAL_PARAMS);
@@ -122,9 +122,9 @@ function applyScene(next, { fade = 5, animate = true, remember = true } = {}) {
   if (started) engine.apply(state, { fade });
   else engine.g = { ...engine.g, ...state.g };
   renderTitle(animate);
-  renderRhythm();
   syncConductor(true);
-  renderRunbar();
+  renderModes();
+  renderPanel();
   updateMediaSession();
   renderTitleActions();
   if (openName) renderSheet();
@@ -438,7 +438,7 @@ const conductor = new Conductor(engine, {
   },
   onSection(info) {
     currentSection = info;
-    renderRunbar();
+    refreshViews();
     renderMeta();
     if (openName === 'layers') renderSheet();
     save();
@@ -480,7 +480,7 @@ function setCadence(v) {
     toast(`Running beat at ${v} steps a minute`);
   }
   if (!started || !engine.playing) togglePlay();
-  renderRunbar();
+  refreshViews();
   save();
 }
 
@@ -499,7 +499,7 @@ function endRun() {
   toast('Back to ambient');
 }
 
-function cadenceControl() {
+function cadenceControl(views = cadenceViews) {
   const el = h('div', 'cadence');
   const down = h('button', null, '−');
   const out = h('output');
@@ -511,25 +511,107 @@ function cadenceControl() {
   up.addEventListener('click', () => setCadence((running() ? state.g.bpm : prefs.cadence) + 1));
   el.append(down, out, up, h('span', null, 'steps / min'));
   show();
-  cadenceViews.add(show);
+  views.add(show);
   return el;
 }
 
-function renderRunbar() {
-  const bar = $('#runbar');
-  bar.hidden = !running();
-  if (running() && !bar.firstChild) {
-    bar.append(cadenceControl());
+/* ─────────────────────────── modes: Listen · Run · Sleep ─────────────────────────── */
+
+// The three ways people use this sit at the top; each one shows its own
+// few controls under the scene name. Deeper settings stay in the dock.
+const mode = () => (running() ? 'run' : prefs.mode === 'sleep' ? 'sleep' : 'listen');
+const panel = $('#panel');
+const panelViews = new Set();
+const refreshViews = () => { cadenceViews.forEach((f) => f()); panelViews.forEach((f) => f()); };
+
+function setMode(m) {
+  if (m === mode()) return;
+  if (m === 'run') return setCadence(prefs.cadence);
+  prefs.mode = m;
+  if (running()) endRun();
+  else { renderModes(); renderPanel(); }
+  if (m === 'sleep') toast(sleepEnd ? 'Sleep' : 'Sleep · set a timer below');
+  save();
+}
+
+function renderModes() {
+  const m = mode();
+  document.querySelectorAll('.modes [data-mode]').forEach((b) => {
+    b.classList.toggle('on', b.dataset.mode === m);
+    b.setAttribute('aria-pressed', String(b.dataset.mode === m));
+  });
+  document.body.dataset.mode = m;
+}
+document.querySelectorAll('.modes [data-mode]').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
+
+function prow(label, content, extra) {
+  const row = h('div', 'prow');
+  row.append(h('span', 'prow-label', label), content);
+  if (extra) row.append(extra);
+  return row;
+}
+
+function renderPanel() {
+  panel.innerHTML = '';
+  panelViews.clear();
+  const m = mode();
+  const opts = (list) => list.map(([value, label]) => ({ value, label }));
+  if (m === 'listen') {
+    panel.append(prow('Rhythm', chips(opts([[true, 'On'], [false, 'Off']]), !!state.g.beat, (v) => setRhythm(v), 'pchips')));
+    panel.append(prow('Drift', chips(opts([[0, 'Off'], [5, '5 min'], [10, '10'], [20, '20'], [40, '40']]), prefs.journey, setJourney, 'pchips')));
+  } else if (m === 'run') {
+    const top = h('div', 'prow run-top');
+    const tap = h('button', 'chip tap-mini', 'Tap');
+    tap.setAttribute('aria-label', 'Tap along with your steps to set the cadence');
+    tap.addEventListener('click', () => tapStep());
+    top.append(cadenceControl(panelViews), tap);
+    panel.append(top);
+    const status = h('div', 'run-status');
     const lab = h('span', 'section-label');
-    bar.append(lab);
     const time = h('span', 'run-time');
-    bar.append(time);
-    cadenceViews.add(() => {
-      lab.textContent = runPhaseLabel() || (conductor.active && currentSection ? currentSection.name.toLowerCase() : prefs.runSong ? '' : 'steady loop');
-      time.textContent = runElapsed >= 1 ? mmss(runElapsed) : '';
+    status.append(lab, time);
+    panel.append(status);
+    panelViews.add(() => {
+      lab.textContent = runPhaseLabel() || (conductor.active && currentSection ? currentSection.name.toLowerCase() : prefs.runSong ? 'starting' : 'steady loop');
+      time.textContent = runElapsed >= 1 ? mmss(runElapsed) : '0:00';
     });
+    const more = h('button', 'text-btn more-btn', 'More');
+    more.addEventListener('click', () => openSheet('run'));
+    panel.append(prow('Intervals', chips(Object.entries(INTERVALS).map(([id, iv]) => ({ value: id, label: iv ? iv.short : 'Off' })), prefs.intervals, setIntervals, 'pchips'), more));
+  } else {
+    panel.append(prow('Timer', chips(opts([[0, 'Off'], [15, '15 min'], [30, '30'], [45, '45'], [60, '60'], [90, '90']]), sleepEnd ? sleepMin : 0, setSleep, 'pchips')));
+    panel.append(prow('Breathe', chips(Object.entries(BREATHS).map(([id, b]) => ({ value: id, label: b ? b.label : 'Off' })), prefs.breath, setBreath, 'pchips')));
+    const st = h('div', 'run-status');
+    st.append(h('span', 'timer-status'));
+    const calmer = h('button', 'text-btn', 'Sleepier scene');
+    calmer.addEventListener('click', () => {
+      applyScene(generateScene(newSeed(), { mood: 'sleep', rhythm: false }));
+      toast(state.name, undoAction());
+      if (!started) togglePlay();
+    });
+    st.append(calmer);
+    panel.append(st);
+    updateTimerStatus();
   }
-  cadenceViews.forEach((f) => { if (f) f(); });
+  refreshViews();
+}
+
+function setJourney(v) {
+  prefs.journey = v;
+  lastSceneChange = Date.now();
+  save();
+  toast(v ? `A new scene drifts in every ${v} min` : 'The scene stays');
+}
+
+function setIntervals(v) {
+  prefs.intervals = v;
+  if (runPhase === 'push' && prefs.pushCadence) setGlobal('bpm', runBase);
+  runPhase = 'off';
+  tickRun(0);
+  conductor.intensity = runIntensity();
+  refreshViews();
+  save();
+  if (v !== 'off') toast(running() && runElapsed < WARMUP ? `Intervals start after the warm-up` : `Intervals on`);
 }
 
 /* ─── run clock and intervals ─── */
@@ -541,9 +623,9 @@ let runBase = 0;
 const WARMUP = 300;
 const INTERVALS = {
   off: null,
-  '1-2': { on: 60, off: 120, label: '1 min push · 2 easy' },
-  '2-2': { on: 120, off: 120, label: '2 push · 2 easy' },
-  '4-3': { on: 240, off: 180, label: '4 push · 3 easy' },
+  '1-2': { on: 60, off: 120, label: '1 min push · 2 easy', short: '1 / 2' },
+  '2-2': { on: 120, off: 120, label: '2 push · 2 easy', short: '2 / 2' },
+  '4-3': { on: 240, off: 180, label: '4 push · 3 easy', short: '4 / 3' },
 };
 
 function resetRunClock() {
@@ -593,22 +675,23 @@ function tickRun(dt) {
       toast('Easy');
     } else if (phase === 'off' && was === 'push' && prefs.pushCadence) setGlobal('bpm', runBase);
   }
-  cadenceViews.forEach((f) => f());
+  refreshViews();
 }
 
 // Tap tempo: tap along with your footsteps to set the cadence.
 const taps = [];
 function tapStep(label) {
+  const say = (msg) => { if (label) label.textContent = msg; else toast(msg); };
   const now = performance.now();
   if (taps.length && now - taps[taps.length - 1] > 1500) taps.length = 0;
   taps.push(now);
   if (taps.length > 9) taps.shift();
-  if (taps.length < 4) { label.textContent = `keep tapping · ${4 - taps.length} more`; return; }
+  if (taps.length < 4) { say(taps.length === 1 ? 'Tap with each step · 3 more' : `Keep tapping · ${4 - taps.length} more`); return; }
   const iv = taps.slice(1).map((t, i) => t - taps[i]).sort((a, b) => a - b);
   const median = iv[Math.floor(iv.length / 2)];
   const cadence = Math.round(60000 / median);
-  label.textContent = `${cadence} steps a minute`;
   setCadence(cadence);
+  say(`${clamp(cadence, 120, 200)} steps a minute`);
 }
 
 function runSection() {
@@ -627,7 +710,7 @@ function runSection() {
     prefs.runSong = v;
     syncConductor(false);
     if (!v) toast('Steady loop: everything stays as it is');
-    renderRunbar();
+    refreshViews();
     save();
   }));
   arr.append(h('p', 'note', 'Evolving: instruments take turns, drums change pattern, breakdowns and builds come and go. The kick stays on every step throughout.'));
@@ -642,15 +725,7 @@ function runSection() {
   run.append(inten);
   const ivs = h('div', 'choice');
   ivs.append(h('span', 'choice-label', 'Intervals'));
-  ivs.append(chips(Object.entries(INTERVALS).map(([id, iv]) => ({ value: id, label: iv ? iv.label : 'Off' })), prefs.intervals, (v) => {
-    prefs.intervals = v;
-    if (runPhase === 'push' && prefs.pushCadence) setGlobal('bpm', runBase);
-    runPhase = 'off';
-    tickRun(0);
-    conductor.intensity = runIntensity();
-    renderRunbar();
-    save();
-  }, 'scroll'));
+  ivs.append(chips(Object.entries(INTERVALS).map(([id, iv]) => ({ value: id, label: iv ? iv.label : 'Off' })), prefs.intervals, (v) => { setIntervals(v); renderPanel(); }, 'scroll'));
   const pc = h('div', 'choice');
   pc.append(h('span', 'choice-label', 'Cadence during a push'));
   pc.append(chips([[0, 'Same'], [4, '+4'], [8, '+8'], [12, '+12']].map(([v, l]) => ({ value: v, label: l })), prefs.pushCadence, (v) => {
@@ -670,7 +745,7 @@ function runSection() {
     nextSec.addEventListener('click', () => { conductor.skip(); toast('Moving on at the next bar'); });
     if (prefs.runSong) row.append(nextSec);
     const stop = h('button', 'btn', 'End run');
-    stop.addEventListener('click', endRun);
+    stop.addEventListener('click', () => { closeSheet(); setMode('listen'); });
     row.append(fresh, stop);
     run.append(row);
   }
@@ -702,29 +777,21 @@ const keepAlive = (() => {
 
 /* ─────────────────────────── rhythm mode ─────────────────────────── */
 
-const rhythmBtn = $('#btn-rhythm');
-function renderRhythm() {
-  rhythmBtn.textContent = state.g.beat ? 'Rhythm on' : 'Rhythm off';
-  rhythmBtn.setAttribute('aria-pressed', String(!!state.g.beat));
-}
-
 // Off: drums and heartbeat fall silent, bass holds, and Random makes
 // beatless scenes. On: if this scene never had drums, give it some.
 function setRhythm(on) {
   state.g.beat = on;
   engine.setGlobal('beat', on);
-  renderRhythm();
   const hasDrums = LAYERS.some((d) => d.group === 'rhythm' && state.layers[d.id].on);
   if (on && !hasDrums) {
     const next = rerollSection(state, 'rhythm', newSeed(), { rhythm: 'force', energy: Math.max(state.energy, 0.55) });
     next.name = state.name;
     next.tagline = state.tagline;
     applyScene(next, { fade: 3, animate: false });
-  } else if (openName) renderSheet();
+  } else { renderPanel(); if (openName) renderSheet(); }
   toast(on ? 'Rhythm on' : 'Rhythm off');
   save();
 }
-rhythmBtn.addEventListener('click', () => setRhythm(!state.g.beat));
 
 /* ─────────────────────────── touch: the screen is an instrument ─────────────────────────── */
 
@@ -789,7 +856,12 @@ const backdrop = $('#backdrop');
 let openName = null;
 const bound = new Map(); // live updaters for controls, keyed "layer.param" or "g.param"
 
-const SHEETS = { create: renderCreate, layers: renderLayers, music: renderMusic, sound: renderSound, rest: renderRest };
+const SHEETS = { create: renderCreate, layers: renderLayers, music: renderMusic, sound: renderSound, run: renderRun };
+
+function renderRun(el) {
+  el.append(head('Running', running() ? `${Math.round(state.g.bpm)} steps a minute` : 'off'));
+  el.append(runSection());
+}
 
 let lastFocus = null;
 function openSheet(name) {
@@ -802,7 +874,7 @@ function openSheet(name) {
   sheet.setAttribute('aria-hidden', 'false');
   sheet.inert = false;
   app.inert = true;
-  sheet.setAttribute('aria-label', { create: 'Scenes', layers: 'Layers', music: 'Music', sound: 'Sound', rest: 'Sleep' }[name]);
+  sheet.setAttribute('aria-label', { create: 'Scenes', layers: 'Layers', music: 'Music', sound: 'Sound', run: 'Running' }[name]);
   backdrop.classList.add('open');
   requestAnimationFrame(() => { const h2 = body.querySelector('h2'); if (h2) { h2.tabIndex = -1; h2.focus({ preventScroll: true }); } });
   visuals.busy = true;
@@ -829,10 +901,8 @@ function renderSheet() {
   const top = body.scrollTop;
   bound.clear();
   cadenceViews.clear();
-  if ($('#runbar').firstChild) { $('#runbar').innerHTML = ''; }
   body.innerHTML = '';
   SHEETS[openName](body);
-  renderRunbar();
   body.scrollTop = top;
 }
 
@@ -845,7 +915,8 @@ addEventListener('keydown', (e) => {
   if (e.key === ' ' && !openName && e.target.tagName !== 'BUTTON') { e.preventDefault(); togglePlay(); }
   const keys = {
     g: generate, n: generate, b: () => history_.length && back(), s: saveScene, r: () => (recorder.recording ? stopRecording() : startRecording()),
-    1: () => openSheet('create'), 2: () => openSheet('layers'), 3: () => openSheet('music'), 4: () => openSheet('sound'), 5: () => openSheet('rest'),
+    1: () => openSheet('create'), 2: () => openSheet('layers'), 3: () => openSheet('music'), 4: () => openSheet('sound'),
+    l: () => setMode('listen'), u: () => setMode('run'), z: () => setMode('sleep'),
   };
   const fn = keys[e.key.toLowerCase()];
   if (fn && (!openName || /\d/.test(e.key))) fn();
@@ -977,7 +1048,7 @@ function setGlobal(id, v) {
   if (id === 'beat') return setRhythm(v);
   state.g[id] = v;
   engine.setGlobal(id, v);
-  if (id === 'bpm' || id === 'meter') { renderMeta(); cadenceViews.forEach((f) => f()); }
+  if (id === 'bpm' || id === 'meter') { renderMeta(); refreshViews(); }
   save();
 }
 
@@ -1038,11 +1109,6 @@ function renderCreate(el) {
     el.append(rec);
   }
 
-  const rh = section('Rhythm', 'Random follows this');
-  rh.append(chips([{ value: true, label: 'With rhythm' }, { value: false, label: 'Without' }], !!state.g.beat, (v) => setRhythm(v)));
-  el.append(rh);
-
-  el.append(runSection());
 
   const mood = section('Mood');
   mood.append(chips([{ value: 'any', label: 'Any' }, ...MOODS.map((m) => ({ value: m.id, label: m.name }))], prefs.mood, (v) => { prefs.mood = v; save(); }, 'scroll'));
@@ -1070,14 +1136,6 @@ function renderCreate(el) {
   rr.append(list);
   el.append(rr);
 
-  const j = section('Journey', 'drifts on its own');
-  j.append(chips(
-    [{ value: 0, label: 'Off' }, { value: 3, label: '3 min' }, { value: 5, label: '5 min' }, { value: 10, label: '10 min' }, { value: 20, label: '20 min' }, { value: 40, label: '40 min' }],
-    prefs.journey,
-    (v) => { prefs.journey = v; lastSceneChange = Date.now(); save(); if (v) toast(`Drifting every ${v} min`); },
-    'scroll',
-  ));
-  el.append(j);
 
   const sh = section('Share');
   sh.append(h('p', 'note', 'The link holds <b>every setting</b>. Whoever opens it hears this exact scene.'));
@@ -1271,6 +1329,7 @@ function renderSound(el) {
   });
   perf.append(lite);
   el.append(perf);
+  screenSection(el);
 }
 
 function applyVisualPrefs() {
@@ -1292,35 +1351,26 @@ let sleepEnd = 0;
 let sleepMin = 0;
 let sleepFading = false;
 
-function renderRest(el) {
-  el.append(head('Sleep', 'timer, breath, screen'));
-
-  const timer = section('Sleep timer', 'fades out gently');
-  const opts = [0, 10, 20, 30, 45, 60, 90].map((m) => ({ value: m, label: m ? `${m} min` : 'Off' }));
-  timer.append(chips(opts, sleepEnd ? sleepMin : 0, (m) => {
-    sleepMin = m;
-    sleepEnd = m ? Date.now() + m * 60000 : 0;
-    sleepFading = false;
-    engine.setVolume(prefs.volume);
-    if (m) engine.scheduleSleep(m * 60);
-    updateTimerStatus();
-  }));
-  timer.append(h('p', 'timer-status', ''));
-  el.append(timer);
+function setSleep(m) {
+  sleepMin = m;
+  sleepEnd = m ? Date.now() + m * 60000 : 0;
+  sleepFading = false;
+  engine.setVolume(prefs.volume);
+  if (m) engine.scheduleSleep(m * 60);
   updateTimerStatus();
+  toast(m ? `Stops in ${m} min, fading out over the last one` : 'Timer off');
+}
 
-  const br = section('Breathing guide', 'follow the orb');
-  br.append(chips(Object.entries(BREATHS).map(([id, b]) => ({ value: id, label: b ? b.label : 'Off' })), prefs.breath, (v) => {
-    prefs.breath = v;
-    breathStart = performance.now();
-    save();
-    if (v !== 'off') closeSheet();
-  }));
-  el.append(br);
+function setBreath(v) {
+  prefs.breath = v;
+  breathStart = performance.now();
+  save();
+}
 
+function screenSection(el) {
   const sc = section('Screen');
   if ('wakeLock' in navigator) {
-    const row = h('button', 'toggle-row', `<span><b>Keep screen awake</b><small>for watching the visuals</small></span><span class="switch${prefs.wake ? ' on' : ''}"></span>`);
+    const row = h('button', 'toggle-row', `<span><b>Keep screen awake</b><small>for watching the visuals, or a run with the phone on an armband</small></span><span class="switch${prefs.wake ? ' on' : ''}"></span>`);
     row.addEventListener('click', () => {
       prefs.wake = !prefs.wake;
       row.querySelector('.switch').classList.toggle('on', prefs.wake);
@@ -1345,9 +1395,8 @@ function fmt(ms) {
 
 function updateTimerStatus() {
   const el = $('.timer-status');
-  if (el) el.textContent = sleepEnd ? `Fading out in ${fmt(sleepEnd - Date.now())}` : '';
-  const sb = $('.top [data-sheet="rest"]');
-  sb.textContent = sleepEnd ? `Sleep ${Math.ceil((sleepEnd - Date.now()) / 60000)}m` : 'Sleep';
+  if (el) el.textContent = sleepEnd ? `stops in ${fmt(sleepEnd - Date.now())}` : 'no timer';
+  $('#sleep-left').textContent = sleepEnd ? String(Math.ceil((sleepEnd - Date.now()) / 60000)) : '';
 }
 
 let lastTick = Date.now();
@@ -1367,7 +1416,7 @@ setInterval(() => {
       sleepFading = false;
       if (engine.playing) togglePlay();
       engine.setVolume(prefs.volume);
-      if (openName === 'rest') renderSheet();
+      if (mode() === 'sleep') renderPanel();
     }
     updateTimerStatus();
   }
@@ -1381,7 +1430,7 @@ setInterval(() => {
 let breathStart = performance.now();
 const breathText = $('#breath-text');
 function breathLoop(ts) {
-  const b = BREATHS[prefs.breath];
+  const b = mode() === 'sleep' ? BREATHS[prefs.breath] : null;
   if (!b) {
     visuals.breath = null;
     breathText.classList.remove('show');

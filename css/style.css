@@ -60,6 +60,37 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
   touch-action: none;
 }
 
+/* ─── header: the three modes, then Rec and Share ─── */
+.modes { display: flex; gap: 20px; }
+.modes button { position: relative; font: italic 400 19px/1 var(--serif); color: var(--ink-3); padding: 10px 0; transition: color 0.3s; }
+.modes button.on { color: var(--ink); }
+.modes button.on::after { content: ''; position: absolute; left: 0; right: 0; bottom: 3px; height: 1px; background: var(--accent); }
+#sleep-left { font: 400 10px/1 var(--mono); color: var(--accent); margin-left: 3px; vertical-align: super; font-style: normal; }
+#sleep-left:empty { display: none; }
+
+/* ─── the panel under the title: only what this mode needs ─── */
+.panel { margin-top: 10px; display: grid; gap: 4px; max-width: 460px; transition: opacity 1.4s var(--ease); }
+.panel:empty { display: none; }
+.prow { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.prow-label { flex: none; width: 62px; font: 400 11.5px/1 var(--mono); color: var(--ink-3); }
+.chips.pchips { flex: 1; min-width: 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; gap: 4px; padding: 3px 0; touch-action: pan-x; }
+.chips.pchips::-webkit-scrollbar { display: none; }
+.pchips .chip { flex: none; min-height: 34px; padding: 7px 10px; font: 400 12px/1 var(--mono); background: var(--bg); white-space: nowrap; }
+.pchips .chip.on { background: var(--ink); }
+.run-top { gap: 8px; padding: 2px 0 4px; }
+.run-top .cadence button { width: 44px; height: 44px; background: var(--bg); }
+.run-top .cadence output { font-size: 30px; min-width: 64px; }
+.run-top .cadence span { display: none; }
+.tap-mini { min-height: 44px; padding: 0 16px; margin-left: 4px; font: 500 12px/1 var(--mono); background: var(--bg); color: var(--ink); }
+.tap-mini:active { background: var(--rule); }
+.run-status { display: flex; align-items: center; gap: 14px; min-height: 28px; font: 400 12px/1 var(--mono); color: var(--ink-2); }
+.run-status .text-btn { margin-left: auto; padding: 8px 0; }
+.more-btn { flex: none; padding: 12px 0 12px 4px; }
+body[data-mode="run"] .title h1 { font-size: clamp(30px, 8.5vw, 46px); }
+.idle .panel { opacity: 0; pointer-events: none; }
+body[data-mode="run"].idle .panel { opacity: 0.5; }
+body[data-mode="run"].idle .panel .prow:not(.run-top) { visibility: hidden; }
+
 /* ─── header ─── */
 .top { display: flex; align-items: center; justify-content: space-between; height: 40px; transition: opacity 1.4s var(--ease); }
 .brand { font: italic 400 19px/1 var(--serif); letter-spacing: 0.01em; color: var(--ink-2); }
@@ -69,11 +100,11 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 #btn-rhythm[aria-pressed="false"] { color: var(--ink-3); }
 
 /* ─── title: left-aligned, like a record label ─── */
-.title { padding-top: 3vh; max-width: 30ch; transition: opacity 0.6s var(--ease), transform 0.6s var(--ease); }
+.title { padding-top: 3vh; transition: opacity 0.6s var(--ease), transform 0.6s var(--ease); }
 .title.swap { opacity: 0; transform: translateX(-8px); }
 .title h1 {
   font: 400 clamp(38px, 11vw, 60px)/0.98 var(--serif); margin: 0; letter-spacing: -0.015em;
-  font-optical-sizing: auto; text-wrap: balance;
+  font-optical-sizing: auto; text-wrap: balance; max-width: 11em;
 }
 .tag { display: none; }
 .meta { font: 400 12px/1.5 var(--mono); color: var(--ink-3); margin: 12px 0 0; transition: opacity 1.4s var(--ease); }
@@ -262,15 +293,8 @@ input[type=range]:active::-webkit-slider-thumb { background: var(--accent); bord
 .cadence button:active { background: var(--rule); }
 .cadence output { min-width: 64px; text-align: center; font: 400 28px/1 var(--mono); font-variant-numeric: tabular-nums; }
 .cadence span { font: 400 12px/1.2 var(--mono); color: var(--ink-3); margin-left: 8px; }
-.runbar { display: flex; align-items: center; gap: 14px; }
-.runbar[hidden] { display: none; }
 .section-label { font: 400 12px/1 var(--mono); color: var(--accent); }
-.run-time { font: 400 12px/1 var(--mono); color: var(--ink-2); font-variant-numeric: tabular-nums; margin-left: auto; }
-.runbar { flex-wrap: wrap; row-gap: 8px; }
-.runbar { margin-top: 14px; transition: opacity 1.4s var(--ease); }
-.runbar .cadence button { width: 38px; height: 38px; font-size: 18px; background: var(--bg); }
-.runbar .cadence output { font-size: 22px; min-width: 52px; }
-.idle .runbar { opacity: 0.35; }
+.run-time { font: 400 12px/1 var(--mono); color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .tap { width: 100%; margin: 12px 0 6px; padding: 16px; border: 1px dashed rgb(var(--ink-rgb) / 0.35); border-radius: 6px; font: 500 14px/1.3 var(--sans); color: var(--ink); }
 .tap:active { background: var(--rule); border-style: solid; }
 .tap small { display: block; font: 400 12px/1.3 var(--mono); color: var(--ink-3); margin-top: 4px; }
@@ -316,15 +340,15 @@ input[type=range]:active::-webkit-slider-thumb { background: var(--accent); bord
   #btn-rec.rec::before { animation: none; }
 }
 @media (max-width: 359px) {
-  .top { justify-content: flex-end; }
+  .modes { gap: 14px; }
+  .modes button { font-size: 17px; }
   .top-actions { gap: 14px; }
-  .brand { display: none; }
 }
 @media (orientation: landscape) and (max-height: 500px) {
   .title { padding-top: 0; max-width: none; }
   .title h1 { font-size: 28px; }
   .meta { margin-top: 4px; }
-  .runbar { margin-top: 6px; }
+  .panel { margin-top: 4px; }
   .breath-text { top: 4px; font-size: 20px; }
   .orb-label { display: none; }
   .dock-btn, .dock-main { padding: 10px 0 12px; }

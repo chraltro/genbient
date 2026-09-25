@@ -4,6 +4,15 @@ A generative ambient instrument for the phone. Every scene is built from a seed,
 
 **Live:** https://chraltro.github.io/genbient/
 
+## How it's laid out
+
+- **Listen · Run · Sleep** at the top are the three ways to use it. Under the scene name, each shows only its own few controls:
+  - *Listen*: rhythm on or off, and how often a new scene drifts in.
+  - *Run*: cadence with − and +, Tap to set it from your steps, the song section and run clock, and intervals. *More* opens the full running settings.
+  - *Sleep*: timer, breathing guide, and a sleepier scene. The minutes left show next to the word Sleep.
+- **Rec** and **Share** sit top right. **‹ Back** and **Save** sit under the scene name.
+- The dock holds the deep editing: **Scenes** (saved, recent, mood, energy, regenerate one part, starting points), **Layers**, **Random**, **Music**, **Sound**.
+
 ## What's in it
 
 - **28 layers** in five groups, each with its own controls (level, filter, pan, reverb and echo sends, plus instrument-specific shape):
@@ -21,7 +30,7 @@ A generative ambient instrument for the phone. Every scene is built from a seed,
 - **Record**: the Rec button captures a lossless 16-bit stereo WAV (at the device's sample rate). The capture sits before the volume control and runs in an AudioWorklet. Optional 1.5 s fades, peak levelling to −1 dB and auto-stop. The scene's share link is written into the file's metadata. You can listen back to the clip before saving it. It saves through the share sheet on phones and downloads on computers.
 - **Share links** carry the complete state.
 - **Sleep tools**: sleep timer (its fade is scheduled on the audio clock, so it still happens if the phone suspends the page), breathing guide, wake lock, battery modes.
-- **Keyboard**: space plays or pauses, G or N for Random, B for Back, S to save, R to record, 1 to 5 open the panels, Esc closes them.
+- **Keyboard**: space plays or pauses, G or N for Random, B for Back, S to save, R to record, L / U / Z for Listen, Run and Sleep, 1 to 4 open the panels, Esc closes them.
 - **Updates**: the service worker fetches from the network first, so a new version shows up the next time the app opens. Offline, it falls back to the cache.
 
 ## Performance

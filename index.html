@@ -27,11 +27,13 @@
 
   <main id="app">
     <header class="top">
-      <span class="brand">Genbient</span>
+      <nav class="modes" aria-label="Mode">
+        <button data-mode="listen">Listen</button>
+        <button data-mode="run">Run</button>
+        <button data-mode="sleep">Sleep<small id="sleep-left"></small></button>
+      </nav>
       <span class="top-actions">
         <button class="text-btn" id="btn-rec" aria-label="Record a clip">Rec</button>
-        <button class="text-btn" id="btn-rhythm" aria-pressed="true">Rhythm on</button>
-        <button class="text-btn" data-sheet="rest">Sleep</button>
         <button class="text-btn" id="btn-share">Share</button>
       </span>
     </header>
@@ -44,7 +46,7 @@
         <button class="text-btn" id="btn-back" hidden aria-label="Back to the previous scene">‹ Back</button>
         <button class="text-btn" id="btn-save" aria-label="Save this scene">Save</button>
       </div>
-      <div class="runbar" id="runbar" hidden></div>
+      <div class="panel" id="panel"></div>
     </section>
 
     <div class="stage">
