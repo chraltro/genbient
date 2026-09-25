@@ -13,6 +13,9 @@ const TEXTURES = ['rain', 'wind', 'stream', 'birds', 'ocean'];
 const TEX_ROLE = [...TEXTURES, 'night', 'fire', 'thunder', 'noise']; // anything ambient can drift out
 
 // energy 0..1 · bars are drum bars (one chord = 16 bars in running mode)
+// The sound of the fresh bass: a bright saw with a snappy filter and a little grit.
+export const FRESH_BASS = { pattern: 'groove', wave: 'sawtooth', pluck: 0.6, drive: 0.3, glide: 0.12, length: 0.8, tone: 0.62, oct: 0, vol: 0.5 };
+
 export const SECTIONS = {
   intro:     { name: 'Intro',     energy: 0.3,  bars: [16],     next: { groove: 1 } },
   groove:    { name: 'Groove',    energy: 0.6,  bars: [32, 16], next: { lift: 5, breakdown: 2, groove: 1.5 } },
@@ -42,6 +45,7 @@ export class Conductor {
 
   start() {
     this.active = true;
+    this.lock = null;
     this.section = null;
     this.endBar = null;
     this.history = [];
@@ -51,6 +55,7 @@ export class Conductor {
 
   stop() {
     this.active = false;
+    if (this.e.harmony?.song) this.e.harmony.song.locked = false;
     if (this.ctx) glide(this.e.arr.frequency, 20000, this.ctx.currentTime, 0.5);
     this.host.onSection(null);
   }
@@ -87,6 +92,10 @@ export class Conductor {
   }
 
   pickNext() {
+    // intervals hold the song where the runner is: a push never drops into a
+    // breakdown, an easy stretch never climbs to a peak
+    if (this.lock === 'push') return this.section === 'peak' && chance(0.4) ? 'lift' : 'peak';
+    if (this.lock === 'easy') return 'groove';
     const s = SECTIONS[this.section] || SECTIONS.intro;
     const cfg = INTENSITY[this.intensity];
     const ids = Object.keys(s.next).filter((id) => SECTIONS[id].energy <= cfg.cap + 0.01);
@@ -115,7 +124,7 @@ export class Conductor {
     /* ─── drums: the step pulse (kick) always stays ─── */
     const kd = cfg.drums;
     const kick = type === 'breakdown'
-      ? { vol: 0.38 * kd, punch: 0.15, click: 0.1, tone: 0.42 }
+      ? { vol: 0.48 * kd, punch: 0.3, click: 0.15, tone: 0.45 } // softer, but the step stays clear
       : { vol: lerp(0.5, 0.6, e) * kd, punch: lerp(0.45, 0.8, e), click: lerp(0.25, 0.55, e), tone: 0.6 };
     set('kick', true, { steps: 16, hits: 4, rotate: 0, prob: 1, ghost: 0, ...kick }, barDur * 0.5);
 
@@ -137,8 +146,14 @@ export class Conductor {
     if (on('pulse')) set('pulse', false);
 
     /* ─── bass ─── */
+    const fresh = !!this.e.g.groove;
     if (type === 'intro') { if (on('bass')) set('bass', false); }
-    else set('bass', true, {
+    else if (fresh) {
+      // the fresh bass: held through a breakdown, busier as the song lifts
+      set('bass', true, type === 'breakdown'
+        ? { pattern: 'held', vol: 0.4 }
+        : { ...FRESH_BASS, busy: type === 'build' ? 0.3 : clamp(lerp(0.35, 0.95, e) + rand(-0.08, 0.08), 0, 1) }, barDur * 0.25);
+    } else set('bass', true, {
       pattern: type === 'breakdown' || type === 'build' ? 'held' : e >= 0.95 ? pick(['pulse', 'synco', 'pulse']) : e >= 0.75 ? pick(['pulse', 'roots']) : pick(['roots', 'pulse', 'rootfifth']),
       vol: type === 'breakdown' ? 0.4 : 0.5,
     });
@@ -189,8 +204,11 @@ export class Conductor {
 
     /* ─── harmony & colour ─── */
     const h = this.e.harmony;
-    if (type === 'breakdown' && chance(0.5)) h.newLoop();
-    if (type === 'peak' && prev === 'build' && chance(0.18)) {
+    const song = !!this.e.g.song;
+    // song chords: the section chooses the part of the song
+    if (song) h.setPart(type === 'lift' || type === 'peak' ? 'chorus' : type === 'breakdown' ? 'bridge' : 'verse');
+    else if (type === 'breakdown' && chance(0.5)) h.newLoop();
+    if (!song && type === 'peak' && prev === 'build' && chance(0.18)) {
       h.setKey((h.root + 2) % 12, h.mode);
       for (const id in this.e.layers) this.e.layers[id].onKey(t);
       this.host.onKey();

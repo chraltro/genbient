@@ -77,6 +77,12 @@ export class Harmony {
 
   get tones() { return this.chord.tones; }
 
+  // Best guess at the next chord's root, for bass lines that lead into it.
+  peekDegree() {
+    if (this.opts.prog === 'loop' && this.loop.length) return this.loop[(this.loopPos + 1 + this.loop.length) % this.loop.length];
+    return 0;
+  }
+
   isChordTone(d) {
     const pc = this.pc(d);
     return this.chord.tones.some((t) => this.pc(t) === pc);
@@ -117,11 +123,24 @@ export class Harmony {
     const verse = pick(list);
     const others = list.filter((p) => p !== verse);
     const chorus = others.length ? pick(others) : verse;
+    const rest = others.filter((p) => p !== chorus);
+    const bridge = rest.length ? pick(rest) : chorus;
     // start at the top of the verse on the next chord change
-    this.song = { verse, chorus, part: 'verse', passes: -1 };
+    this.song = { verse, chorus, bridge, part: 'verse', passes: -1, locked: false };
     this.loop = [...verse.degrees];
     this.loopPos = -1;
     return true;
+  }
+
+  // The running arranger decides the part: verse, chorus or bridge. The
+  // new part starts from its first chord at the next change.
+  setPart(part) {
+    if (!this.song && !this.newSong()) return;
+    this.song.locked = true;
+    if (this.song.part === part) return;
+    this.song.part = part;
+    this.loop = [...this.song[part].degrees];
+    this.loopPos = -1;
   }
 
   get songInfo() {
@@ -171,7 +190,7 @@ export class Harmony {
         if (this.opts.song && this.song) {
           // verse twice, chorus twice, and round again; never rewritten
           this.loopPos = (this.loopPos + 1) % this.loop.length;
-          if (this.loopPos === 0 && ++this.song.passes >= 2) {
+          if (this.loopPos === 0 && !this.song.locked && ++this.song.passes >= 2) {
             this.song.passes = 0;
             this.song.part = this.song.part === 'verse' ? 'chorus' : 'verse';
             this.loop = [...this.song[this.song.part].degrees];

@@ -1,5 +1,5 @@
 import { Engine } from './engine.js';
-import { Conductor } from './conductor.js';
+import { Conductor, FRESH_BASS } from './conductor.js';
 import { Recorder } from './recorder.js';
 import { Visuals } from './visuals.js';
 import { LAYERS, LAYER_BY_ID, GROUPS } from './layers/index.js';
@@ -76,7 +76,7 @@ function save() {
 /* ─────────────────────────── engine events ─────────────────────────── */
 
 engine.on('note', (n) => visuals.note(n));
-engine.on('chord', () => { if (state.g.song && mode() === 'listen') panelViews.forEach((f) => f()); });
+engine.on('chord', () => { if (state.g.song && mode() !== 'sleep') panelViews.forEach((f) => f()); });
 engine.on('key', (hm) => {
   state.root = hm.root;
   state.mode = hm.mode;
@@ -226,6 +226,11 @@ function setSong(v) {
   if (v && SONG_MODE[state.mode]) {
     state.mode = SONG_MODE[state.mode];
     commitKey();
+  }
+  // mid-run, start in the part that fits the section playing now
+  if (v && conductor.active && currentSection) {
+    const t = currentSection.type;
+    engine.harmony.setPart(t === 'lift' || t === 'peak' ? 'chorus' : t === 'breakdown' ? 'bridge' : 'verse');
   }
   renderPanel();
   if (openName === 'music') renderSheet();
@@ -614,7 +619,8 @@ function renderPanel() {
     status.append(lab, time, skip);
     panel.append(status);
     panelViews.add(() => {
-      lab.textContent = runPhaseLabel() || (conductor.active && currentSection ? currentSection.name.toLowerCase() : prefs.runSong ? 'starting' : 'steady loop');
+      const part = state.g.song && engine.harmony?.songInfo?.part;
+      lab.textContent = (runPhaseLabel() || (conductor.active && currentSection ? currentSection.name.toLowerCase() : prefs.runSong ? 'starting' : 'steady loop')) + (part ? ` · ${part}` : '');
       time.textContent = (runElapsed >= 1 ? mmss(runElapsed) : '0:00') + (prefs.runGoal ? ` / ${prefs.runGoal}:00` : '');
       const ph = runPhase;
       skip.hidden = !['warm', 'push', 'easy'].includes(ph);
@@ -623,6 +629,9 @@ function renderPanel() {
     const more = h('button', 'text-btn more-btn', 'More');
     more.addEventListener('click', () => openSheet('run'));
     panel.append(prow('Intervals', chips(Object.entries(INTERVALS).map(([id, iv]) => ({ value: id, label: iv ? iv.short : 'Off' })), prefs.intervals, setIntervals, 'pchips'), more));
+    const music = h('div', 'chips pchips');
+    music.append(toggleChip('Song chords', () => !!state.g.song, setSong), toggleChip('Fresh bass', () => !!state.g.groove, setGroove));
+    panel.append(prow('Music', music));
     panel.append(prow('Length', chips(opts([[0, 'Open'], [20, '20 min'], [30, '30'], [45, '45'], [60, '60'], [90, '90']]), prefs.runGoal, setRunGoal, 'pchips')));
   } else {
     panel.append(prow('Timer', chips(opts([[0, 'Off'], [15, '15 min'], [30, '30'], [45, '45'], [60, '60'], [90, '90'], [120, '2 h'], [180, '3 h']]), sleepEnd ? sleepMin : 0, setSleep, 'pchips')));
@@ -657,6 +666,34 @@ function playBed(kind) {
   applyScene(s, { fade: 6 });
   toast(s.name, undoAction());
   if (!started) togglePlay();
+}
+
+function toggleChip(label, get, set) {
+  const b = h('button', 'chip wind' + (get() ? ' on' : ''), label);
+  b.setAttribute('aria-pressed', String(get()));
+  b.addEventListener('click', () => set(!get()));
+  return b;
+}
+
+// Fresh bass: a syncopated line at the drum tempo. In a running song the
+// arranger shapes it per section; otherwise it just plays.
+function setGroove(v) {
+  setGlobal('groove', v);
+  const ls = state.layers.bass;
+  if (v) {
+    Object.assign(ls.p, FRESH_BASS, { busy: running() ? 0.6 : 0.5 });
+    ls.on = true;
+  } else if (ls.p.pattern === 'groove' || ls.p.pattern === 'held') ls.p.pattern = running() ? 'pulse' : 'roots';
+  if (started) {
+    const l = engine.layers.bass;
+    l.setAll(ls.p);
+    if (ls.on) l.enable(1);
+  }
+  if (v && !state.g.beat) setRhythm(true);
+  renderPanel();
+  renderMeta();
+  save();
+  toast(v ? 'Fresh bass: syncopated, at the drum tempo, leading into every chord' : 'Bass back to basics');
 }
 
 function windToggle() {
@@ -721,6 +758,7 @@ function resetRunClock() {
   runPhase = 'off';
   ivShift = 0;
   goalDone = false;
+  conductor.lock = null;
   conductor.intensity = runIntensity();
 }
 
@@ -768,6 +806,7 @@ function tickRun(dt) {
     if (runPhase === 'push' && prefs.pushCadence) setGlobal('bpm', runBase);
     runPhase = 'cool';
     conductor.intensity = 'easy';
+    conductor.lock = 'easy';
     conductor.force('breakdown');
     conductor.cue(false);
     setTimeout(() => conductor.cue(false), 900);
@@ -780,6 +819,7 @@ function tickRun(dt) {
     const was = runPhase;
     runPhase = phase;
     conductor.intensity = runIntensity();
+    conductor.lock = phase === 'push' ? 'push' : phase === 'easy' ? 'easy' : null;
     if (phase === 'push') {
       runBase = Math.round(state.g.bpm);
       if (prefs.pushCadence) setGlobal('bpm', runBase + prefs.pushCadence);

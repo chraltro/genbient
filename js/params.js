@@ -107,6 +107,7 @@ export const GLOBAL_SECTIONS = [
   },
   {
     id: 'harmony', title: 'Harmony', params: [
+      T('groove', 'Fresh bass', false, { gen: 0, keep: true, hint: 'a syncopated bass line at the drum tempo' }),
       T('song', 'Song chords', false, { gen: 0, keep: true, hint: 'progressions from real songs, verse and chorus' }),
       C('prog', 'Progression', [['loop', 'Looping'], ['drift', 'Modal drift'], ['func', 'Functional'], ['circle', 'Circle of fifths'],
         ['pedal', 'Pedal point'], ['two', 'Two-chord sway'], ['random', 'Wandering'], ['still', 'Static']], 'loop'),
@@ -183,7 +184,7 @@ export const VISUAL_PARAMS = [
 ];
 
 // 'beat' is packed last so share links made before it existed still decode.
-const LATE = ['beat', 'halfTime', 'song']; // appended in the order they were added
+const LATE = ['beat', 'halfTime', 'song', 'groove']; // appended in the order they were added
 export const GLOBAL_PARAMS = [
   ...GLOBAL_SECTIONS.flatMap((s) => s.params).filter((p) => !LATE.includes(p.id)),
   ...LATE.map((id) => GLOBAL_SECTIONS.flatMap((s) => s.params).find((p) => p.id === id)),

@@ -369,21 +369,79 @@ export class Shimmer extends Layer {
 }
 
 /* ─── Bass ─── */
+// Sixteen-step grooves, sparse to busy. R root, O octave, F fifth,
+// 7 seventh, 3 third, g ghost (a soft, short root).
+const GROOVES = [
+  { busy: 0.15, notes: { 2: 'R', 6: 'R', 10: 'R', 14: 'R' } },
+  { busy: 0.3, notes: { 0: 'R', 3: 'R', 6: 'O', 10: 'R', 14: 'F' } },
+  { busy: 0.4, notes: { 2: 'R', 3: 'g', 6: 'R', 7: 'g', 10: 'R', 11: 'g', 14: 'O' } },
+  { busy: 0.5, notes: { 0: 'R', 3: 'O', 6: 'R', 8: 'F', 11: 'R', 14: '7' } },
+  { busy: 0.6, notes: { 0: 'R', 2: 'O', 4: 'R', 6: 'O', 8: 'R', 10: 'O', 12: 'R', 14: 'O' } },
+  { busy: 0.7, notes: { 0: 'R', 3: 'R', 6: '3', 7: 'g', 10: 'F', 12: 'O', 13: 'g', 14: '7' } },
+  { busy: 0.8, notes: { 0: 'R', 2: 'R', 3: 'O', 6: 'R', 8: 'F', 10: 'R', 11: 'O', 14: '3', 15: 'g' } },
+  { busy: 0.9, notes: { 0: 'R', 1: 'g', 2: 'O', 4: 'R', 6: 'F', 7: 'O', 8: 'R', 10: '7', 11: 'O', 12: 'R', 14: 'F', 15: 'O' } },
+];
+
 export class Bass extends Layer {
   static schema = [
     ...common({ vol: 0.55, tone: 0.55, rev: 0.2, dly: 0, toneGen: [0.35, 0.7], revGen: [0.05, 0.35], dlyGen: [0, 0.1] }),
     OCT(0),
     C('pattern', 'Pattern', [['held', 'Held'], ['roots', 'Roots'], ['rootfifth', 'Root & fifth'], ['pulse', 'Pulse'],
-      ['synco', 'Syncopated'], ['walk', 'Walking'], ['broken', 'Broken chord']], 'roots'),
+      ['synco', 'Syncopated'], ['walk', 'Walking'], ['broken', 'Broken chord'], ['groove', 'Groove']], 'roots'),
     C('wave', 'Waveform', [['sine', 'Sine'], ['triangle', 'Triangle'], ['sawtooth', 'Saw'], ['square', 'Square']], 'triangle'),
     R('length', 'Note length', 0.1, 1, 0.7),
     R('glide', 'Glide', 0, 1, 0.15, { gen: [0, 0.4] }),
     R('pluck', 'Pluck', 0, 1, 0.35, { hint: 'filter snap on each note' }),
     R('drive', 'Drive', 0, 1, 0.15, { gen: [0, 0.4] }),
+    R('busy', 'Groove busyness', 0, 1, 0.6, { hint: 'for the Groove pattern: sparse off-beats to rolling 16ths' }),
   ];
-  start() { this.lastF = null; this.walk = 0; }
+  start() { this.lastF = null; this.walk = 0; this.groove = null; }
+  // the groove runs at the drum tempo even when the music is in half-time
+  get fullTime() { return this.p.pattern === 'groove' && this.g.beat; }
+
+  // A bass player's bar: a pattern chosen for how busy the song is, held for
+  // two bars, with a run into every chord change and a fill every fourth bar.
+  grooveStep(info) {
+    const { p, h } = this;
+    const pos = (info.sib * 16) / info.spb;
+    if (pos !== Math.floor(pos)) return;
+    if (!this.groove || (info.sib === 0 && info.bar % 2 === 0)) {
+      const near = GROOVES.filter((g) => Math.abs(g.busy - p.busy) <= 0.2);
+      this.groove = pick(near.length ? near : GROOVES);
+    }
+    const root = h.chord.deg;
+    const hz = (d) => h.hz(d, 2 + p.oct);
+    const t = info.t;
+    const step = info.dur;
+    // leading into the next chord: a scale step, then a half step, below its root
+    if (info.toChord === 1 && pos >= 14) {
+      const next = h.peekDegree();
+      const target = hz(next);
+      const f = pos === 14 ? hz(next - 1) : target * Math.pow(2, -1 / 12);
+      if (f > target * 1.3) return;
+      this.play(t, f, this.vel(0.75), step * 0.9);
+      return;
+    }
+    // a fill in the last beat of every fourth bar
+    if (info.bar % 4 === 3 && pos >= 12 && p.busy > 0.35) {
+      const run = [root, root + 2, root + 4, root + h.len];
+      this.play(t, hz(run[pos - 12]), this.vel(0.7 + (pos - 12) * 0.08), step * 0.85);
+      return;
+    }
+    const role = this.groove.notes[pos];
+    if (!role) return;
+    const deg = { R: root, O: root + h.len, F: root + 4, 7: root + 6, 3: root + 2, g: root }[role];
+    const ghost = role === 'g';
+    // hold each note until just before the next one
+    let gap = 1;
+    while (gap < 4 && !this.groove.notes[(pos + gap) % 16]) gap++;
+    const acc = pos % 4 === 0 ? 1 : 0.85;
+    this.play(t, hz(deg), this.vel(ghost ? 0.35 : acc), step * (ghost ? 0.45 : gap * 0.8));
+  }
+
   onStep(info) {
     const { p, h } = this;
+    if (this.g.beat && p.pattern === 'groove') return this.grooveStep(info);
     const a = accent(info.sib, info.groups);
     const barStart = info.sib === 0;
     const len = (steps) => steps * info.dur * p.length;

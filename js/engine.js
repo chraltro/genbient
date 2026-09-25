@@ -285,8 +285,12 @@ export class Engine {
       this.emit('bar', { bar: this.bar, t: this.nextStep, dur: m.steps * dur, beat: m.groups[0] * dur, step: dur });
       // in half-time a musical bar spans two drum bars
       let cb = this.g.chordBars * (this.g.halfTime ? 2 : 1);
+      this.cbNow = null;
       // song chords move at a song's pace: no chord longer than ~10 s
       if (this.g.song && !this.g.halfTime) while (cb > 1 && cb * m.steps * dur > 10) cb /= 2;
+      // running: a chord every 4 bars, so one pass of a progression fills a 16-bar section
+      if (this.g.song && this.g.halfTime) cb = 4;
+      this.cbNow = cb;
       if (this.bar > 0 && this.bar % cb === 0) {
         this.advanceHarmony(this.nextStep);
         chordStart = true;
@@ -301,9 +305,11 @@ export class Engine {
       }
     }
     const swing = sib % 2 === 1 ? this.g.swing * dur * 0.66 : 0;
+    const cbNow = this.cbNow || this.g.chordBars * (this.g.halfTime ? 2 : 1);
     const info = {
       t: this.nextStep + swing, step: Math.max(0, this.bar) * m.steps + sib, sib, bar: this.bar,
       spb: m.steps, groups: m.groups, dur, chordStart,
+      toChord: cbNow - (Math.max(0, this.bar) % cbNow), // bars until the next chord, 1 = this is the last
     };
     this.stepT = this.nextStep;
     if (this.g.beat && this.g.pump > 0 && accent(sib, m.groups) >= 0.8 && !this.layers.kick.on) this.duck(info.t, 0.8);
@@ -317,7 +323,7 @@ export class Engine {
     for (const id in this.layers) {
       const l = this.layers[id];
       if (!l.running) continue;
-      const li = l.def.group === 'rhythm' ? info : slow;
+      const li = l.def.group === 'rhythm' || l.fullTime ? info : slow;
       if (!li) continue;
       try { l.onStep(li); } catch (err) { console.error(id, err); }
     }
