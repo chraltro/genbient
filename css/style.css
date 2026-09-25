@@ -68,6 +68,21 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 #sleep-left { font: 400 10px/1 var(--mono); color: var(--accent); margin-left: 3px; vertical-align: super; font-style: normal; }
 #sleep-left:empty { display: none; }
 
+/* A quiet scrim in the scene's own ground colour sits behind the words
+   while the interface is showing, and fades to the waves below them. */
+.title { position: relative; z-index: 0; }
+.top { position: relative; z-index: 1; }
+.title::before {
+  content: ''; position: absolute; z-index: -1; pointer-events: none;
+  left: calc(50% - 50vw); width: 100vw; top: -160px; bottom: -56px;
+  background: linear-gradient(to bottom,
+    rgb(var(--bg-rgb) / 0.94) 0, rgb(var(--bg-rgb) / 0.9) calc(100% - 96px),
+    rgb(var(--bg-rgb) / 0.55) calc(100% - 44px), rgb(var(--bg-rgb) / 0) 100%);
+  transition: opacity 1.4s var(--ease);
+}
+.idle .title::before { opacity: 0; }
+body[data-mode="run"].idle .title::before { opacity: 0.6; }
+
 /* ─── the panel under the title: a sentence you can edit ─── */
 .panel { margin-top: 14px; max-width: 30em; transition: opacity 1.4s var(--ease); }
 .panel:empty { display: none; }

@@ -396,6 +396,10 @@ const BASS_STYLES = {
       [[0, 'R', 6, 1], [6, 'R', 2, 0.7], [8, 'F', 4, 0.85], [12, 'O', 2, 0.6], [14, 'R', 2, 0.8]],
       [[0, 'R', 5, 1], [6, 'R', 2, 0.75], [11, 'R', 5, 0.9]],
       [[0, 'R', 3, 1], [3, 'R', 5, 0.85], [8, '7', 4, 0.8], [12, 'F', 4, 0.8]],
+      [[0, 'R', 4, 1], [4, 'R', 2, 0.7], [7, 'R', 3, 0.85], [10, 'F', 6, 0.8]],
+      [[0, 'R', 8, 1], [8, '7', 4, 0.8], [12, 'F', 2, 0.75], [14, 'O', 2, 0.7]],
+      [[0, 'R', 2, 1], [3, 'R', 7, 0.9], [10, '3', 2, 0.75], [12, 'R', 4, 0.85]],
+      seq16('R . R . R . R . R . R . O . F .'),
     ],
   },
   // Muse: fuzzed sixteenths, root and octave, relentless
@@ -407,6 +411,10 @@ const BASS_STYLES = {
       seq16('R R O R R R O R R R O R F F O F'),
       seq16('R O R O R O R O R O R O F O 7 O'),
       seq16('R R R R O O R R 3 3 R R F F 7 7'),
+      seq16('R R R R R R R R O O O O F F F F'),
+      seq16('R . R . R R O . R . R . 7 7 O .'),
+      seq16('R R O R 7 R O R F R O R 3 R O R'),
+      seq16('O R R O R R O R O R R O R R F 7'),
     ],
   },
   // Shpongle and psytrance: rolling off-beats around the kick, a squelchy filter
@@ -418,6 +426,10 @@ const BASS_STYLES = {
       seq16('. R R R . R R R . R R R . R R R'),
       seq16('. R R R . R R R . R R R . R R O'),
       seq16('. R R R . R R R . R R O . F F R'),
+      seq16('. R R R . R R R . R R R . O R R'),
+      seq16('. R . R . R . R . R . R . R . R'),
+      seq16('. R R . . R R . . R R . . 7 O .'),
+      seq16('. R R R . R R R . F F F . R R R'),
     ],
   },
   // Funk and house: syncopation, octave jumps, ghost notes
@@ -430,9 +442,16 @@ const BASS_STYLES = {
       seq16('R . O . R . O . R . O . R . O .'),
       seq16('R . . R . . 3 g . . F . O g 7 .'),
       seq16('R g O R . . F O R . 7 O R . F O'),
+      seq16('R . . . R . O . . R . . F . 7 .'),
+      seq16('R . R g . R . O . . R . 3 . F .'),
+      seq16('. . R . O . . R . . R . . F O .'),
     ],
   },
 };
+
+// order every style's bars from sparse to busy, so busyness picks well
+for (const st of Object.values(BASS_STYLES)) st.bars.sort((a, b) => a.length - b.length);
+export const BASS_PATTERN_COUNT = Object.values(BASS_STYLES).reduce((n, st) => n + st.bars.length, 0);
 
 export class Bass extends Layer {
   static schema = [
