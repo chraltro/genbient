@@ -9,7 +9,8 @@ import {
   PALETTES, MOODS, STARTS, SECTIONS, CADENCES, runify, unrun, generateScene, startScene, rerollSection, mutateScene,
   encodeScene, decodeScene, normalize,
 } from './scenes.js';
-import { seeded, clamp, lerp } from './util.js';
+import { seeded, clamp, lerp, glide } from './util.js';
+import { SONG_MODE, PROGRESSION_COUNT } from './progressions.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const h = (tag, cls, html) => {
@@ -27,7 +28,7 @@ const store = {
 };
 
 const prefs = Object.assign(
-  { volume: 0.85, journey: 0, breath: 'off', wake: false, mood: 'any', energy: null, filter: 'playing', quality: 'balanced', cadence: 165, runSong: true, runIntensity: 'steady', lite: false, recMax: 0, recFade: true, recLevel: true, intervals: 'off', pushCadence: 0, mode: 'listen' },
+  { volume: 0.85, journey: 0, breath: 'off', wake: false, mood: 'any', energy: null, filter: 'playing', quality: 'balanced', cadence: 165, runSong: true, runIntensity: 'steady', lite: false, recMax: 0, recFade: true, recLevel: true, intervals: 'off', pushCadence: 0, mode: 'listen', warmup: 5, runGoal: 0, sleepFade: 5, windDown: true, song: false },
   store.get('prefs', {}),
 );
 prefs.vp = fill(prefs.vp, VISUAL_PARAMS);
@@ -75,6 +76,7 @@ function save() {
 /* ─────────────────────────── engine events ─────────────────────────── */
 
 engine.on('note', (n) => visuals.note(n));
+engine.on('chord', () => { if (state.g.song && mode() === 'listen') panelViews.forEach((f) => f()); });
 engine.on('key', (hm) => {
   state.root = hm.root;
   state.mode = hm.mode;
@@ -186,7 +188,7 @@ async function togglePlay() {
   }
   document.body.classList.add('playing');
   orb.setAttribute('aria-label', 'Pause');
-  if (sleepEnd) engine.scheduleSleep((sleepEnd - Date.now()) / 1000);
+  if (sleepEnd) engine.scheduleSleep((sleepEnd - Date.now()) / 1000, fadeSecs());
   if (prefs.wake) requestWake();
   updateMediaSession();
   setMediaState('playing');
@@ -207,10 +209,33 @@ document.addEventListener('visibilitychange', () => {
 
 /* ─────────────────────────── generate ─────────────────────────── */
 
+// Song chords: progressions from real songs instead of free harmony. New
+// scenes follow the preference; a scene in an unusual scale moves to the
+// nearest one songs are written in.
+function songify(s) {
+  if (!prefs.song) return s;
+  s.g.song = true;
+  if (SONG_MODE[s.mode]) s.mode = SONG_MODE[s.mode];
+  return s;
+}
+
+function setSong(v) {
+  prefs.song = v;
+  save();
+  setGlobal('song', v);
+  if (v && SONG_MODE[state.mode]) {
+    state.mode = SONG_MODE[state.mode];
+    commitKey();
+  }
+  renderPanel();
+  if (openName === 'music') renderSheet();
+  toast(v ? 'Song chords: a verse and a chorus from real progressions' : 'Free chords');
+}
+
 function generate() {
   if (running()) { newRunMusic(); toast('New music, same beat', undoAction()); return; }
   const mood = prefs.mood === 'any' ? undefined : prefs.mood;
-  applyScene(generateScene(newSeed(), { mood, energy: prefs.energy ?? undefined, rhythm: state.g.beat ? undefined : false }));
+  applyScene(songify(generateScene(newSeed(), { mood, energy: prefs.energy ?? undefined, rhythm: state.g.beat ? undefined : false })));
   if (!started) togglePlay();
   else toast(state.name, undoAction());
 }
@@ -486,7 +511,7 @@ function setCadence(v) {
 
 function newRunMusic() {
   const mood = MOODS.find((m) => m.id === state.prevMood) ? state.prevMood : undefined;
-  const base = generateScene(newSeed(), { mood, rhythm: false });
+  const base = songify(generateScene(newSeed(), { mood, rhythm: false }));
   applyScene(runify(base, state.g.bpm, newSeed()));
 }
 
@@ -558,7 +583,22 @@ function renderPanel() {
   const opts = (list) => list.map(([value, label]) => ({ value, label }));
   if (m === 'listen') {
     panel.append(prow('Rhythm', chips(opts([[true, 'On'], [false, 'Off']]), !!state.g.beat, (v) => setRhythm(v), 'pchips')));
+    panel.append(prow('Chords', chips(opts([[false, 'Free'], [true, 'Song']]), !!state.g.song, setSong, 'pchips')));
+    if (state.g.song) {
+      const now = h('div', 'run-status song-status');
+      panel.append(now);
+      panelViews.add(() => {
+        const info = engine.harmony?.songInfo;
+        now.textContent = info ? `${info.part} · ${info[info.part]}` : 'verse and chorus start with the next chord';
+      });
+    }
     panel.append(prow('Drift', chips(opts([[0, 'Off'], [5, '5 min'], [10, '10'], [20, '20'], [40, '40']]), prefs.journey, setJourney, 'pchips')));
+    panel.append(prow('Mood', chips([{ value: 'any', label: 'Any' }, ...MOODS.filter((x) => x.id !== 'run').map((x) => ({ value: x.id, label: x.name }))], prefs.mood, (v) => {
+      prefs.mood = v;
+      save();
+      if (v === 'any') toast('Random picks any mood');
+      else generate();
+    }, 'pchips')));
   } else if (m === 'run') {
     const top = h('div', 'prow run-top');
     const tap = h('button', 'chip tap-mini', 'Tap');
@@ -569,31 +609,69 @@ function renderPanel() {
     const status = h('div', 'run-status');
     const lab = h('span', 'section-label');
     const time = h('span', 'run-time');
-    status.append(lab, time);
+    const skip = h('button', 'text-btn skip-btn', 'Skip');
+    skip.addEventListener('click', skipPhase);
+    status.append(lab, time, skip);
     panel.append(status);
     panelViews.add(() => {
       lab.textContent = runPhaseLabel() || (conductor.active && currentSection ? currentSection.name.toLowerCase() : prefs.runSong ? 'starting' : 'steady loop');
-      time.textContent = runElapsed >= 1 ? mmss(runElapsed) : '0:00';
+      time.textContent = (runElapsed >= 1 ? mmss(runElapsed) : '0:00') + (prefs.runGoal ? ` / ${prefs.runGoal}:00` : '');
+      const ph = runPhase;
+      skip.hidden = !['warm', 'push', 'easy'].includes(ph);
+      skip.textContent = ph === 'warm' ? 'Skip warm-up' : ph === 'push' ? 'Skip to easy' : 'Skip to push';
     });
     const more = h('button', 'text-btn more-btn', 'More');
     more.addEventListener('click', () => openSheet('run'));
     panel.append(prow('Intervals', chips(Object.entries(INTERVALS).map(([id, iv]) => ({ value: id, label: iv ? iv.short : 'Off' })), prefs.intervals, setIntervals, 'pchips'), more));
+    panel.append(prow('Length', chips(opts([[0, 'Open'], [20, '20 min'], [30, '30'], [45, '45'], [60, '60'], [90, '90']]), prefs.runGoal, setRunGoal, 'pchips')));
   } else {
-    panel.append(prow('Timer', chips(opts([[0, 'Off'], [15, '15 min'], [30, '30'], [45, '45'], [60, '60'], [90, '90']]), sleepEnd ? sleepMin : 0, setSleep, 'pchips')));
+    panel.append(prow('Timer', chips(opts([[0, 'Off'], [15, '15 min'], [30, '30'], [45, '45'], [60, '60'], [90, '90'], [120, '2 h'], [180, '3 h']]), sleepEnd ? sleepMin : 0, setSleep, 'pchips')));
+    panel.append(prow('Fade', chips(opts([[1, '1 min'], [5, '5 min'], [15, '15 min']]), prefs.sleepFade, (v) => {
+      prefs.sleepFade = v;
+      if (sleepEnd) { sleepFading = false; engine.setVolume(prefs.volume); engine.scheduleSleep((sleepEnd - Date.now()) / 1000, fadeSecs()); }
+      save();
+    }, 'pchips'), windToggle()));
+    panel.append(prow('Sound', chips(BEDS.map(([value, label]) => ({ value, label })), null, playBed, 'pchips')));
     panel.append(prow('Breathe', chips(Object.entries(BREATHS).map(([id, b]) => ({ value: id, label: b ? b.label : 'Off' })), prefs.breath, setBreath, 'pchips')));
     const st = h('div', 'run-status');
     st.append(h('span', 'timer-status'));
-    const calmer = h('button', 'text-btn', 'Sleepier scene');
-    calmer.addEventListener('click', () => {
-      applyScene(generateScene(newSeed(), { mood: 'sleep', rhythm: false }));
-      toast(state.name, undoAction());
-      if (!started) togglePlay();
-    });
-    st.append(calmer);
     panel.append(st);
     updateTimerStatus();
   }
   refreshViews();
+}
+
+// Plain beds for sleeping: one sound, nothing that asks for attention.
+const BEDS = [['sleepier', 'Sleepier'], ['rain', 'Rain'], ['ocean', 'Ocean'], ['noise', 'Brown noise'], ['stream', 'Stream'], ['night', 'Night'], ['fire', 'Fire']];
+function playBed(kind) {
+  const s = songify(generateScene(newSeed(), { mood: 'sleep', rhythm: false, energy: 0.02 }));
+  if (kind !== 'sleepier') {
+    for (const id in s.layers) s.layers[id].on = false;
+    const l = s.layers[kind];
+    l.on = true;
+    l.p = { ...l.p, vol: 0.75 };
+    if (kind === 'noise') l.p = { ...l.p, color: 'brown', sweep: 0.2 };
+    s.name = { rain: 'Rain', ocean: 'Ocean', noise: 'Brown Noise', stream: 'Stream', night: 'Night Garden', fire: 'Fireside' }[kind];
+    s.palette = 'night';
+  }
+  applyScene(s, { fade: 6 });
+  toast(s.name, undoAction());
+  if (!started) togglePlay();
+}
+
+function windToggle() {
+  const b = h('button', 'chip wind' + (prefs.windDown ? ' on' : ''), 'Wind down');
+  b.setAttribute('aria-pressed', String(prefs.windDown));
+  b.title = 'The music slowly gets darker, slower and sparser until the timer ends';
+  b.addEventListener('click', () => {
+    prefs.windDown = !prefs.windDown;
+    b.classList.toggle('on', prefs.windDown);
+    b.setAttribute('aria-pressed', String(prefs.windDown));
+    if (!prefs.windDown) endWind();
+    toast(prefs.windDown ? 'Winds down: darker, slower, sparser as the timer runs' : 'Wind down off');
+    save();
+  });
+  return b;
 }
 
 function setJourney(v) {
@@ -601,6 +679,14 @@ function setJourney(v) {
   lastSceneChange = Date.now();
   save();
   toast(v ? `A new scene drifts in every ${v} min` : 'The scene stays');
+}
+
+function setRunGoal(v) {
+  prefs.runGoal = v;
+  if (goalDone && (!v || runElapsed < v * 60)) { goalDone = false; runPhase = 'off'; conductor.intensity = runIntensity(); tickRun(0); }
+  refreshViews();
+  save();
+  toast(v ? `The music winds down to a cool-down at ${v} min` : 'Open run · no end time');
 }
 
 function setIntervals(v) {
@@ -611,7 +697,7 @@ function setIntervals(v) {
   conductor.intensity = runIntensity();
   refreshViews();
   save();
-  if (v !== 'off') toast(running() && runElapsed < WARMUP ? `Intervals start after the warm-up` : `Intervals on`);
+  if (v !== 'off') toast(running() && phaseAt(runElapsed).phase === 'warm' ? 'Intervals start after the warm-up · Skip starts them now' : 'Intervals on');
 }
 
 /* ─── run clock and intervals ─── */
@@ -620,7 +706,9 @@ function setIntervals(v) {
 let runElapsed = 0;
 let runPhase = 'off';
 let runBase = 0;
-const WARMUP = 300;
+let ivShift = 0;      // seconds skipped ahead in the interval plan
+let goalDone = false;
+const warmup = () => prefs.warmup * 60;
 const INTERVALS = {
   off: null,
   '1-2': { on: 60, off: 120, label: '1 min push · 2 easy', short: '1 / 2' },
@@ -631,32 +719,62 @@ const INTERVALS = {
 function resetRunClock() {
   runElapsed = 0;
   runPhase = 'off';
+  ivShift = 0;
+  goalDone = false;
   conductor.intensity = runIntensity();
 }
 
 function runIntensity() {
-  return runPhase === 'push' ? 'push' : runPhase === 'easy' ? 'easy' : prefs.runIntensity;
+  return runPhase === 'push' ? 'push' : runPhase === 'easy' || goalDone ? 'easy' : prefs.runIntensity;
 }
 
 function phaseAt(t) {
   const iv = INTERVALS[prefs.intervals];
+  if (goalDone) return { phase: 'cool' };
   if (!iv) return { phase: 'off' };
-  if (t < WARMUP) return { phase: 'warm', left: WARMUP - t };
-  const c = (t - WARMUP) % (iv.on + iv.off);
-  return c < iv.on ? { phase: 'push', left: iv.on - c } : { phase: 'easy', left: iv.on + iv.off - c };
+  t += ivShift;
+  const w = warmup();
+  if (t < w) return { phase: 'warm', left: w - t };
+  const n = Math.floor((t - w) / (iv.on + iv.off));
+  const c = (t - w) % (iv.on + iv.off);
+  return c < iv.on ? { phase: 'push', left: iv.on - c, round: n + 1 } : { phase: 'easy', left: iv.on + iv.off - c, round: n + 1 };
 }
 
 function runPhaseLabel() {
-  if (!running() || runPhase === 'off') return '';
-  const { left } = phaseAt(runElapsed);
-  const name = { warm: 'warm-up', push: 'push', easy: 'easy' }[runPhase];
-  return `${name} · ${mmss(left)} left`;
+  if (!running()) return '';
+  if (runPhase === 'cool') return 'done · cool-down';
+  if (runPhase === 'off') return '';
+  const { left, round } = phaseAt(runElapsed);
+  const name = { warm: 'warm-up', push: `push ${round}`, easy: `easy ${round}` }[runPhase];
+  return `${name} · ${mmss(left)}`;
+}
+
+// Jump to the end of the warm-up, or on to the next push or easy stretch.
+function skipPhase() {
+  const ph = phaseAt(runElapsed);
+  if (!ph.left) return;
+  ivShift += ph.left;
+  tickRun(0);
+  refreshViews();
 }
 
 function tickRun(dt) {
   if (!running()) { if (runElapsed || runPhase !== 'off') resetRunClock(); return; }
   if (!engine.playing) return;
   runElapsed += dt;
+  if (prefs.runGoal && !goalDone && runElapsed >= prefs.runGoal * 60) {
+    // goal reached: bells, a breakdown, and easy music to cool down to
+    goalDone = true;
+    if (runPhase === 'push' && prefs.pushCadence) setGlobal('bpm', runBase);
+    runPhase = 'cool';
+    conductor.intensity = 'easy';
+    conductor.force('breakdown');
+    conductor.cue(false);
+    setTimeout(() => conductor.cue(false), 900);
+    toast(`${prefs.runGoal} minutes · well done · cooling down`);
+    refreshViews();
+    return;
+  }
   const { phase } = phaseAt(runElapsed);
   if (phase !== runPhase) {
     const was = runPhase;
@@ -733,7 +851,17 @@ function runSection() {
     prefs.pushCadence = v;
     save();
   }));
-  ivs.append(h('p', 'note', 'After a 5 minute warm-up the music alternates between a push and an easy stretch. Two soft bell notes mark each change: rising for push, falling for easy. The run clock pauses when the music does.'));
+  ivs.append(h('p', 'note', 'After the warm-up the music alternates between a push and an easy stretch. Two soft bell notes mark each change: rising for push, falling for easy. The run clock pauses when the music does.'));
+  const wu = h('div', 'choice');
+  wu.append(h('span', 'choice-label', 'Warm-up before intervals'));
+  wu.append(chips([[0, 'None'], [3, '3 min'], [5, '5 min'], [10, '10 min']].map(([v, l]) => ({ value: v, label: l })), prefs.warmup, (v) => {
+    prefs.warmup = v;
+    runPhase = 'off';
+    tickRun(0);
+    refreshViews();
+    save();
+  }));
+  ivs.append(wu);
   ivs.append(pc);
   run.append(ivs);
   if (running()) {
@@ -1153,7 +1281,7 @@ function renderCreate(el) {
   for (const s of STARTS) {
     const b = h('button', s.name === state.name ? 'current' : '', `<b>${esc(s.name)}</b><span>${esc(MOODS.find((m) => m.id === s.mood).name.toLowerCase())}</span>`);
     b.addEventListener('click', () => {
-      applyScene(startScene(s));
+      applyScene(songify(startScene(s)));
       if (!started) togglePlay();
     });
     ul.append(b);
@@ -1279,7 +1407,7 @@ function renderSound(el) {
   el.append(recordSection());
   const vol = section('Volume');
   vol.append(control({ id: 'volume', label: 'Master', type: 'range', min: 0, max: 1, step: 0.01, fmt: (v) => `${Math.round(v * 100)}%` },
-    prefs.volume, (v) => { prefs.volume = v; engine.setVolume(v); if (sleepEnd) engine.scheduleSleep((sleepEnd - Date.now()) / 1000); save(); }));
+    prefs.volume, (v) => { prefs.volume = v; engine.setVolume(v); if (sleepEnd) engine.scheduleSleep((sleepEnd - Date.now()) / 1000, fadeSecs()); save(); }));
   el.append(vol);
   for (const id of ['space', 'colour']) globalSection(GLOBAL_SECTIONS.find((s) => s.id === id), el);
   const touch = GLOBAL_SECTIONS.find((s) => s.id === 'touch');
@@ -1351,14 +1479,41 @@ let sleepEnd = 0;
 let sleepMin = 0;
 let sleepFading = false;
 
+const fadeSecs = () => Math.min(prefs.sleepFade * 60, sleepMin * 60 * 0.5);
+
+// Over the timer the music darkens, slows a little and thins out, so it
+// eases you down rather than just stopping. Engine-only: the scene itself
+// is untouched and comes back as it was.
+let winding = false;
+let windAt = 0;
+function windDown(now) {
+  if (!sleepEnd || !prefs.windDown || !engine.playing || !engine.ctx || conductor.active) return;
+  if (now - windAt < 10000) return;
+  windAt = now;
+  const p = clamp(1 - (sleepEnd - now) / (sleepMin * 60000), 0, 1);
+  glide(engine.arr.frequency, 20000 * Math.pow(900 / 20000, Math.pow(p, 0.8)), engine.ctx.currentTime, 6);
+  engine.setGlobal('density', state.g.density * (1 - 0.6 * p));
+  engine.setGlobal('bpm', state.g.bpm * (1 - 0.12 * p));
+  winding = true;
+}
+function endWind() {
+  if (!winding) return;
+  winding = false;
+  windAt = 0;
+  if (engine.ctx) glide(engine.arr.frequency, 20000, engine.ctx.currentTime, 1);
+  engine.setGlobal('density', state.g.density);
+  engine.setGlobal('bpm', state.g.bpm);
+}
+
 function setSleep(m) {
+  endWind();
   sleepMin = m;
   sleepEnd = m ? Date.now() + m * 60000 : 0;
   sleepFading = false;
   engine.setVolume(prefs.volume);
-  if (m) engine.scheduleSleep(m * 60);
+  if (m) engine.scheduleSleep(m * 60, fadeSecs());
   updateTimerStatus();
-  toast(m ? `Stops in ${m} min, fading out over the last one` : 'Timer off');
+  toast(m ? `Stops in ${m < 120 ? `${m} min` : `${m / 60} hours`}${prefs.windDown ? ', winding down as it goes' : ''}` : 'Timer off');
 }
 
 function setBreath(v) {
@@ -1395,7 +1550,7 @@ function fmt(ms) {
 
 function updateTimerStatus() {
   const el = $('.timer-status');
-  if (el) el.textContent = sleepEnd ? `stops in ${fmt(sleepEnd - Date.now())}` : 'no timer';
+  if (el) el.textContent = sleepEnd ? `stops in ${fmt(sleepEnd - Date.now())}${winding ? ' · winding down' : ''}` : 'no timer · plays until you stop it';
   $('#sleep-left').textContent = sleepEnd ? String(Math.ceil((sleepEnd - Date.now()) / 60000)) : '';
 }
 
@@ -1406,21 +1561,23 @@ setInterval(() => {
   lastTick = now;
   if (sleepEnd) {
     const left = sleepEnd - now;
-    if (left <= 60000 && !sleepFading && engine.playing) {
+    windDown(now);
+    if (left <= fadeSecs() * 1000 && !sleepFading && engine.playing) {
       sleepFading = true;
-      engine.fadeOut(60);
+      engine.fadeOut(left / 1000);
     }
     if (left <= 0) {
       sleepEnd = 0;
       sleepMin = 0;
       sleepFading = false;
       if (engine.playing) togglePlay();
+      endWind();
       engine.setVolume(prefs.volume);
       if (mode() === 'sleep') renderPanel();
     }
     updateTimerStatus();
   }
-  if (engine.playing && prefs.journey && !conductor.active && now - lastSceneChange > prefs.journey * 60000) {
+  if (engine.playing && prefs.journey && !conductor.active && !winding && now - lastSceneChange > prefs.journey * 60000) {
     applyScene(mutateScene(state, newSeed()), { fade: 10 });
   }
 }, 1000);

@@ -1,5 +1,6 @@
 // Scales, tuning, chord construction, progressions and voice leading.
 import { weighted, pick, chance, clamp } from './util.js';
+import { progressionsFor } from './progressions.js';
 
 export const NOTE_NAMES = ['C', 'C♯', 'D', 'E♭', 'E', 'F', 'F♯', 'G', 'A♭', 'A', 'B♭', 'B'];
 
@@ -30,7 +31,7 @@ export class Harmony {
     this.mode = 'dorian';
     this.a4 = 440;
     this.just = false;
-    this.opts = { prog: 'loop', complexity: 0.4, sus: 0.2, inversions: 0.25, loopLen: 4 };
+    this.opts = { prog: 'loop', complexity: 0.4, sus: 0.2, inversions: 0.25, loopLen: 4, song: false };
     this.loop = [];
     this.loopPos = 0;
     this.chord = this.build(0);
@@ -65,9 +66,11 @@ export class Harmony {
     const size = 3 + (complexity > 0.35 ? 1 : 0) + (complexity > 0.72 ? 1 : 0);
     let tones = [];
     for (let i = 0; i < size; i++) tones.push(deg + i * 2);
-    if (this.len >= 6 && chance(sus)) tones[1] = deg + (chance(0.5) ? 1 : 3);
+    // song chords stay clear: fewer suspensions and inversions
+    const song = this.opts.song;
+    if (this.len >= 6 && chance(song ? sus * 0.3 : sus)) tones[1] = deg + (chance(0.5) ? 1 : 3);
     let bass = deg;
-    if (chance(inversions)) bass = pick(tones.slice(1, 3));
+    if (chance(song ? inversions * 0.4 : inversions)) bass = pick(tones.slice(1, 3));
     if (this.opts.prog === 'pedal') bass = 0;
     return { deg, tones, bass };
   }
@@ -107,7 +110,26 @@ export class Harmony {
     return [cands, weights];
   }
 
+  // Song chords: a verse and a chorus from the library, played as written.
+  newSong() {
+    const list = progressionsFor(this.mode, this.len);
+    if (!list.length) { this.song = null; return false; }
+    const verse = pick(list);
+    const others = list.filter((p) => p !== verse);
+    const chorus = others.length ? pick(others) : verse;
+    // start at the top of the verse on the next chord change
+    this.song = { verse, chorus, part: 'verse', passes: -1 };
+    this.loop = [...verse.degrees];
+    this.loopPos = -1;
+    return true;
+  }
+
+  get songInfo() {
+    return this.opts.song && this.song ? { verse: this.song.verse.name, chorus: this.song.chorus.name, part: this.song.part } : null;
+  }
+
   newLoop() {
+    if (this.opts.song && this.newSong()) return;
     const L = Math.round(clamp(this.opts.loopLen, 2, 8));
     const loop = [0];
     while (loop.length < L) {
@@ -145,7 +167,17 @@ export class Harmony {
       case 'random': return Math.floor(Math.random() * n);
       case 'loop':
       default: {
-        if (!this.loop.length || this.loop.some((d) => d >= n)) this.newLoop();
+        if (!this.loop.length || this.loop.some((d) => d >= n) || (this.opts.song && !this.song)) this.newLoop();
+        if (this.opts.song && this.song) {
+          // verse twice, chorus twice, and round again; never rewritten
+          this.loopPos = (this.loopPos + 1) % this.loop.length;
+          if (this.loopPos === 0 && ++this.song.passes >= 2) {
+            this.song.passes = 0;
+            this.song.part = this.song.part === 'verse' ? 'chorus' : 'verse';
+            this.loop = [...this.song[this.song.part].degrees];
+          }
+          return this.loop[this.loopPos];
+        }
         this.loopPos = (this.loopPos + 1) % this.loop.length;
         if (this.loopPos === 0 && !chance(repetition)) {
           // vary one chord of the loop, occasionally rebuild it entirely
@@ -170,6 +202,7 @@ export class Harmony {
     this.root = root;
     if (mode) this.mode = mode;
     this.loop = [];
+    this.song = null;
     this.chord = this.build(0);
   }
 

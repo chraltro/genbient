@@ -88,6 +88,14 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .more-btn { flex: none; padding: 12px 0 12px 4px; }
 body[data-mode="run"] .title h1 { font-size: clamp(30px, 8.5vw, 46px); }
 .idle .panel { opacity: 0; pointer-events: none; }
+/* sleep: once the interface fades, the lines dim too */
+#bg { transition: opacity 4s var(--ease); }
+body[data-mode="sleep"].idle #bg { opacity: 0.3; }
+.chip.wind { flex: none; min-height: 34px; padding: 7px 10px; font: 400 12px/1 var(--mono); background: var(--bg); }
+.chip.wind.on { background: var(--ink); }
+.skip-btn { margin-left: auto; padding: 8px 0; color: var(--accent); }
+.skip-btn[hidden] { display: none; }
+.song-status { min-height: 20px; padding-left: 72px; color: var(--accent); }
 body[data-mode="run"].idle .panel { opacity: 0.5; }
 body[data-mode="run"].idle .panel .prow:not(.run-top) { visibility: hidden; }
 

@@ -284,7 +284,9 @@ export class Engine {
       this.bar++;
       this.emit('bar', { bar: this.bar, t: this.nextStep, dur: m.steps * dur, beat: m.groups[0] * dur, step: dur });
       // in half-time a musical bar spans two drum bars
-      const cb = this.g.chordBars * (this.g.halfTime ? 2 : 1);
+      let cb = this.g.chordBars * (this.g.halfTime ? 2 : 1);
+      // song chords move at a song's pace: no chord longer than ~10 s
+      if (this.g.song && !this.g.halfTime) while (cb > 1 && cb * m.steps * dur > 10) cb /= 2;
       if (this.bar > 0 && this.bar % cb === 0) {
         this.advanceHarmony(this.nextStep);
         chordStart = true;
@@ -361,13 +363,14 @@ export class Engine {
 
   syncHarmonyOpts() {
     const g = this.g;
-    Object.assign(this.harmony.opts, { prog: g.prog, complexity: g.complexity, sus: g.sus, inversions: g.inversions, loopLen: g.loopLen });
+    Object.assign(this.harmony.opts, { prog: g.song ? 'loop' : g.prog, complexity: g.complexity, sus: g.sus, inversions: g.inversions, loopLen: g.loopLen, song: !!g.song });
   }
 
   advanceHarmony(t) {
     const h = this.harmony;
     const loopStart = h.opts.prog !== 'loop' || h.loopPos === h.loop.length - 1;
-    if (loopStart && chance(this.g.modulate * 0.35)) {
+    // song chords keep their key, like a song does
+    if (loopStart && !this.g.song && chance(this.g.modulate * 0.35)) {
       const [root, mode] = h.modulation(this.g.modType);
       h.setKey(root, mode);
       for (const id in this.layers) this.layers[id].onKey(t);
@@ -410,9 +413,9 @@ export class Engine {
   setGlobal(id, v) {
     this.g[id] = v;
     if (!this.ctx) return;
-    if (['prog', 'complexity', 'sus', 'inversions', 'loopLen'].includes(id)) {
+    if (['prog', 'complexity', 'sus', 'inversions', 'loopLen', 'song'].includes(id)) {
       this.syncHarmonyOpts();
-      if (id === 'prog' || id === 'loopLen') this.harmony.loop = [];
+      if (id === 'prog' || id === 'loopLen' || id === 'song') { this.harmony.loop = []; this.harmony.song = null; }
     }
     this.applyGlobals(false, id);
   }
@@ -547,11 +550,11 @@ export class Engine {
 
   // The sleep fade also lives on the audio clock, so it happens even if the
   // phone stops running the page's timers while locked.
-  scheduleSleep(inSeconds) {
+  scheduleSleep(inSeconds, fade = 60) {
     if (!this.ctx || !this.playing) return;
     const t = this.ctx.currentTime;
     glide(this.master.gain, this.volume, t, 0.15);
-    this.master.gain.setTargetAtTime(0, t + Math.max(0.2, inSeconds - 60), 15);
+    this.master.gain.setTargetAtTime(0, t + Math.max(0.2, inSeconds - fade), Math.max(0.5, Math.min(fade, inSeconds) / 4));
   }
 
   fadeOut(seconds) {

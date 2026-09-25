@@ -107,6 +107,7 @@ export const GLOBAL_SECTIONS = [
   },
   {
     id: 'harmony', title: 'Harmony', params: [
+      T('song', 'Song chords', false, { gen: 0, keep: true, hint: 'progressions from real songs, verse and chorus' }),
       C('prog', 'Progression', [['loop', 'Looping'], ['drift', 'Modal drift'], ['func', 'Functional'], ['circle', 'Circle of fifths'],
         ['pedal', 'Pedal point'], ['two', 'Two-chord sway'], ['random', 'Wandering'], ['still', 'Static']], 'loop'),
       C('chordBars', 'Chord length', [[1, '1 bar'], [2, '2 bars'], [4, '4 bars'], [8, '8 bars']], 2, { gen: [1, 2, 2, 4] }),
@@ -182,9 +183,9 @@ export const VISUAL_PARAMS = [
 ];
 
 // 'beat' is packed last so share links made before it existed still decode.
-const LATE = ['beat', 'halfTime']; // appended in the order they were added
+const LATE = ['beat', 'halfTime', 'song']; // appended in the order they were added
 export const GLOBAL_PARAMS = [
   ...GLOBAL_SECTIONS.flatMap((s) => s.params).filter((p) => !LATE.includes(p.id)),
-  ...LATE.map((id) => GLOBAL_SECTIONS[0].params.find((p) => p.id === id)),
+  ...LATE.map((id) => GLOBAL_SECTIONS.flatMap((s) => s.params).find((p) => p.id === id)),
 ];
 export const GLOBAL_BY_ID = Object.fromEntries(GLOBAL_PARAMS.map((p) => [p.id, p]));
