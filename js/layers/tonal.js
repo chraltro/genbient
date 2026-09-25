@@ -369,18 +369,70 @@ export class Shimmer extends Layer {
 }
 
 /* ─── Bass ─── */
-// Sixteen-step grooves, sparse to busy. R root, O octave, F fifth,
-// 7 seventh, 3 third, g ghost (a soft, short root).
-const GROOVES = [
-  { busy: 0.15, notes: { 2: 'R', 6: 'R', 10: 'R', 14: 'R' } },
-  { busy: 0.3, notes: { 0: 'R', 3: 'R', 6: 'O', 10: 'R', 14: 'F' } },
-  { busy: 0.4, notes: { 2: 'R', 3: 'g', 6: 'R', 7: 'g', 10: 'R', 11: 'g', 14: 'O' } },
-  { busy: 0.5, notes: { 0: 'R', 3: 'O', 6: 'R', 8: 'F', 11: 'R', 14: '7' } },
-  { busy: 0.6, notes: { 0: 'R', 2: 'O', 4: 'R', 6: 'O', 8: 'R', 10: 'O', 12: 'R', 14: 'O' } },
-  { busy: 0.7, notes: { 0: 'R', 3: 'R', 6: '3', 7: 'g', 10: 'F', 12: 'O', 13: 'g', 14: '7' } },
-  { busy: 0.8, notes: { 0: 'R', 2: 'R', 3: 'O', 6: 'R', 8: 'F', 10: 'R', 11: 'O', 14: '3', 15: 'g' } },
-  { busy: 0.9, notes: { 0: 'R', 1: 'g', 2: 'O', 4: 'R', 6: 'F', 7: 'O', 8: 'R', 10: '7', 11: 'O', 12: 'R', 14: 'F', 15: 'O' } },
-];
+/*
+ * Fresh bass. Each style is a sound and a set of one-bar patterns, sparse to
+ * busy. Roles: R root, O octave, F fifth, 7 seventh, 3 third, g ghost.
+ * Written as sixteen steps; a dot is a rest, a note lasts until the next.
+ */
+const seq16 = (str) => {
+  const toks = str.trim().split(/\s+/);
+  const out = [];
+  toks.forEach((r, i) => {
+    if (r === '.') return;
+    let len = 1;
+    while (i + len < 16 && toks[i + len] === '.') len++;
+    out.push([i, r, len, i % 4 === 0 ? 1 : 0.85]);
+  });
+  return out;
+};
+
+const BASS_STYLES = {
+  // Massive Attack: deep and patient, space between the notes
+  dub: {
+    wave: 'triangle', sub: 1, body: 0.6, drive: 0.15, cut: 520, q: 0.8, env: 300, decay: 0.3, glide: 0.2, attack: 0.012, release: 0.12, gap: 0.92,
+    bars: [
+      [[0, 'R', 12, 1], [12, 'F', 4, 0.8]],
+      [[0, 'R', 10, 1], [10, '3', 3, 0.8], [13, 'F', 3, 0.8]],
+      [[0, 'R', 6, 1], [6, 'R', 2, 0.7], [8, 'F', 4, 0.85], [12, 'O', 2, 0.6], [14, 'R', 2, 0.8]],
+      [[0, 'R', 5, 1], [6, 'R', 2, 0.75], [11, 'R', 5, 0.9]],
+      [[0, 'R', 3, 1], [3, 'R', 5, 0.85], [8, '7', 4, 0.8], [12, 'F', 4, 0.8]],
+    ],
+  },
+  // Muse: fuzzed sixteenths, root and octave, relentless
+  drive: {
+    wave: 'sawtooth', wave2: 'square', sub: 0.8, body: 0.9, drive: 0.8, cut: 1400, q: 1.4, env: 1500, decay: 0.12, glide: 0.03, attack: 0.004, release: 0.03, gap: 0.8,
+    bars: [
+      seq16('R . . R . . R . R . . R . . O .'),
+      seq16('R . R R O . R R R . R R F . 7 R'),
+      seq16('R R O R R R O R R R O R F F O F'),
+      seq16('R O R O R O R O R O R O F O 7 O'),
+      seq16('R R R R O O R R 3 3 R R F F 7 7'),
+    ],
+  },
+  // Shpongle and psytrance: rolling off-beats around the kick, a squelchy filter
+  psy: {
+    wave: 'sawtooth', sub: 0.85, body: 0.85, drive: 0.3, cut: 420, q: 7, env: 2000, decay: 0.07, glide: 0, attack: 0.002, release: 0.02, gap: 0.75, sweep: true,
+    bars: [
+      seq16('. . R . . . R . . . R . . . R .'),
+      seq16('. R R . . R R . . R R . . R R .'),
+      seq16('. R R R . R R R . R R R . R R R'),
+      seq16('. R R R . R R R . R R R . R R O'),
+      seq16('. R R R . R R R . R R O . F F R'),
+    ],
+  },
+  // Funk and house: syncopation, octave jumps, ghost notes
+  funk: {
+    wave: 'sawtooth', sub: 0.85, body: 0.85, drive: 0.35, cut: 950, q: 3, env: 1400, decay: 0.1, glide: 0.08, attack: 0.004, release: 0.04, gap: 0.8,
+    bars: [
+      seq16('. . R . . . R . . . R . . . R .'),
+      seq16('R . . R . . O . . . R . . . F .'),
+      seq16('R . . O . . R . F . . R . . 7 .'),
+      seq16('R . O . R . O . R . O . R . O .'),
+      seq16('R . . R . . 3 g . . F . O g 7 .'),
+      seq16('R g O R . . F O R . 7 O R . F O'),
+    ],
+  },
+};
 
 export class Bass extends Layer {
   static schema = [
@@ -393,55 +445,100 @@ export class Bass extends Layer {
     R('glide', 'Glide', 0, 1, 0.15, { gen: [0, 0.4] }),
     R('pluck', 'Pluck', 0, 1, 0.35, { hint: 'filter snap on each note' }),
     R('drive', 'Drive', 0, 1, 0.15, { gen: [0, 0.4] }),
-    R('busy', 'Groove busyness', 0, 1, 0.6, { hint: 'for the Groove pattern: sparse off-beats to rolling 16ths' }),
+    R('busy', 'Groove busyness', 0, 1, 0.6, { hint: 'for the Groove pattern: sparse to busy' }),
+    C('bstyle', 'Groove style', [['dub', 'Dub'], ['drive', 'Drive'], ['psy', 'Psy'], ['funk', 'Funk']], 'dub'),
   ];
-  start() { this.lastF = null; this.walk = 0; this.groove = null; }
+  start() { this.lastF = null; this.walk = 0; this.bar = null; }
   // the groove runs at the drum tempo even when the music is in half-time
   get fullTime() { return this.p.pattern === 'groove' && this.g.beat; }
 
-  // A bass player's bar: a pattern chosen for how busy the song is, held for
-  // two bars, with a run into every chord change and a fill every fourth bar.
-  grooveStep(info) {
+  // A bass player's bar: a pattern picked for how busy the song is, held
+  // for two bars, a lead-in to every chord change and a fill every fourth bar.
+  // Pitched so the root sits between 38 and 76 Hz: felt as much as heard.
+  grooveStep(info, still = false) {
     const { p, h } = this;
     const pos = (info.sib * 16) / info.spb;
     if (pos !== Math.floor(pos)) return;
-    if (!this.groove || (info.sib === 0 && info.bar % 2 === 0)) {
-      const near = GROOVES.filter((g) => Math.abs(g.busy - p.busy) <= 0.2);
-      this.groove = pick(near.length ? near : GROOVES);
+    const calm = still || p.busy < 0.08; // breakdowns: one long note, dub style
+    const S = calm ? BASS_STYLES.dub : BASS_STYLES[p.bstyle] || BASS_STYLES.dub;
+    if (!this.bar || (info.sib === 0 && info.bar % 2 === 0) || this.barStyle !== S) {
+      const n = S.bars.length;
+      const idx = calm ? 0 : clamp(Math.round(p.busy * (n - 1)) + pick([-1, 0, 0, 1]), 0, n - 1);
+      this.bar = S.bars[idx];
+      this.barStyle = S;
     }
+    if (info.sib === 0 && S.sweep) this.sweepCut = S.cut + 1600 * (0.5 - 0.5 * Math.cos((Math.PI * 2 * info.bar) / 16));
     const root = h.chord.deg;
-    const hz = (d) => h.hz(d, 2 + p.oct);
-    const t = info.t;
+    const rf = h.hz(root, 1 + p.oct);
+    const k = rf < 38 ? 2 : rf > 76 ? 0.5 : 1;
+    const hz = (d) => h.hz(d, 1 + p.oct) * k;
+    const t = this.e.human(info.t);
     const step = info.dur;
-    // leading into the next chord: a scale step, then a half step, below its root
-    if (info.toChord === 1 && pos >= 14) {
+    // into the next chord: a scale step, then a half step, below its root
+    if (!calm && S !== BASS_STYLES.psy && info.toChord === 1 && pos >= 14) {
       const next = h.peekDegree();
-      const target = hz(next);
-      const f = pos === 14 ? hz(next - 1) : target * Math.pow(2, -1 / 12);
-      if (f > target * 1.3) return;
-      this.play(t, f, this.vel(0.75), step * 0.9);
+      const target = h.hz(next, 1 + p.oct) * k;
+      const f = pos === 14 ? h.hz(next - 1, 1 + p.oct) * k : target * Math.pow(2, -1 / 12);
+      if (f < target * 1.3) this.deep(t, f, 0.8, step * S.gap, S);
       return;
     }
-    // a fill in the last beat of every fourth bar
-    if (info.bar % 4 === 3 && pos >= 12 && p.busy > 0.35) {
+    // a short fill at the end of every fourth bar
+    if (!calm && info.bar % 4 === 3 && pos >= 12 && p.busy > 0.4 && S !== BASS_STYLES.dub) {
       const run = [root, root + 2, root + 4, root + h.len];
-      this.play(t, hz(run[pos - 12]), this.vel(0.7 + (pos - 12) * 0.08), step * 0.85);
+      this.deep(t, hz(run[pos - 12]), 0.75 + (pos - 12) * 0.06, step * S.gap, S);
       return;
     }
-    const role = this.groove.notes[pos];
-    if (!role) return;
+    const note = this.bar.find((n) => n[0] === pos);
+    if (!note) return;
+    const [, role, len, vel] = note;
     const deg = { R: root, O: root + h.len, F: root + 4, 7: root + 6, 3: root + 2, g: root }[role];
     const ghost = role === 'g';
-    // hold each note until just before the next one
-    let gap = 1;
-    while (gap < 4 && !this.groove.notes[(pos + gap) % 16]) gap++;
-    const acc = pos % 4 === 0 ? 1 : 0.85;
-    this.play(t, hz(deg), this.vel(ghost ? 0.35 : acc), step * (ghost ? 0.45 : gap * 0.8));
+    this.deep(t, hz(deg), ghost ? 0.35 : vel, step * (ghost ? 0.5 : len * S.gap), S);
+  }
+
+  // One note: a clean sine sub underneath, a body that can be dirty and
+  // filtered on top. Phones hear the body; headphones and cars feel the sub.
+  deep(t, f, v, dur, S) {
+    const { ctx, p } = this;
+    v = this.vel(v);
+    const srcs = [osc(ctx, S.wave, f), osc(ctx, 'sine', f)];
+    if (S.wave2) srcs.push(osc(ctx, S.wave2, f, 7));
+    if (this.lastF && S.glide > 0.01 && Math.abs(Math.log2(f / this.lastF)) < 1.01) {
+      for (const o of srcs) {
+        o.frequency.setValueAtTime(this.lastF, t);
+        o.frequency.exponentialRampToValueAtTime(f, t + S.glide * 0.25);
+      }
+    }
+    this.lastF = f;
+    const [body, sub, body2] = srcs;
+    const shaper = this.e.shaper(S.drive + p.drive * 0.3);
+    const cutBase = (S.sweep ? this.sweepCut || S.cut : S.cut) * (0.6 + p.pluck * 0.8);
+    const lp = filter(ctx, 'lowpass', cutBase, S.q);
+    lp.frequency.setValueAtTime(cutBase + S.env * v, t);
+    lp.frequency.setTargetAtTime(cutBase, t + 0.004, S.decay);
+    const bodyG = gain(ctx, S.body * (body2 ? 0.6 : 1));
+    const subG = gain(ctx, S.sub);
+    const amp = gain(ctx, 0);
+    const lvl = 0.55 * v;
+    amp.gain.setValueAtTime(0, t);
+    amp.gain.linearRampToValueAtTime(lvl, t + S.attack);
+    amp.gain.setTargetAtTime(lvl * 0.85, t + S.attack, 0.3);
+    amp.gain.setTargetAtTime(0, t + Math.max(S.attack, dur), S.release);
+    body.connect(shaper);
+    if (body2) body2.connect(shaper);
+    shaper.connect(lp).connect(bodyG).connect(amp);
+    sub.connect(subG).connect(amp);
+    amp.connect(this.bus);
+    const end = t + dur + S.release * 8 + 0.05;
+    for (const o of srcs) { o.start(t); o.stop(end); }
+    disposeOnEnd(body, [...srcs, shaper, lp, bodyG, subG, amp]);
+    if (v > 0.8) this.note(t, f, 0, 0.4, 'bass');
   }
 
   onStep(info) {
     const { p, h } = this;
-    if (this.g.beat && p.pattern === 'groove') return this.grooveStep(info);
+    // without a beat the groove settles into one long, deep note per chord
+    if (p.pattern === 'groove') return this.grooveStep(info, !this.g.beat);
     const a = accent(info.sib, info.groups);
     const barStart = info.sib === 0;
     const len = (steps) => steps * info.dur * p.length;

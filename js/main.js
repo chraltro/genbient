@@ -148,10 +148,10 @@ function renderTitle(animate) {
 function renderMeta() {
   const n = LAYERS.filter((l) => state.layers[l.id].on).length;
   const mood = MOODS.find((m) => m.id === state.mood);
-  const bits = [mood ? mood.name : null, `${NOTE_NAMES[state.root]} ${MODES[state.mode].name.toLowerCase()}`, `${Math.round(state.g.bpm)} bpm`].filter(Boolean);
-  if (state.g.meter !== '4/4') bits.push(state.g.meter);
-  bits.push(`${n} ${n === 1 ? 'layer' : 'layers'}`);
-  $('#scene-meta').textContent = bits.map((b) => b.replace(/ /g, '\u00a0')).join(' · ');
+  // a quiet line, not a spec sheet: the mood and the key
+  const key = `${NOTE_NAMES[state.root]} ${MODES[state.mode].name.toLowerCase()}`;
+  $('#scene-meta').textContent = `${mood ? mood.name.toLowerCase() : 'a scene'} in ${key}`;
+  $('#scene-meta').title = `${Math.round(state.g.bpm)} bpm · ${state.g.meter} · ${n} ${n === 1 ? 'layer' : 'layers'}`;
 }
 
 /* ─────────────────────────── play / pause ─────────────────────────── */
@@ -574,80 +574,123 @@ function renderModes() {
 }
 document.querySelectorAll('.modes [data-mode]').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
 
-function prow(label, content, extra) {
-  const row = h('div', 'prow');
-  row.append(h('span', 'prow-label', label), content);
-  if (extra) row.append(extra);
-  return row;
-}
+// Each mode's panel reads as a sentence. The words that can change are
+// underlined: a two-way word flips when tapped, the others open a quiet row
+// of alternatives just beneath the sentence.
+let openTok = null;
 
 function renderPanel() {
   panel.innerHTML = '';
   panelViews.clear();
   const m = mode();
-  const opts = (list) => list.map(([value, label]) => ({ value, label }));
-  if (m === 'listen') {
-    panel.append(prow('Rhythm', chips(opts([[true, 'On'], [false, 'Off']]), !!state.g.beat, (v) => setRhythm(v), 'pchips')));
-    panel.append(prow('Chords', chips(opts([[false, 'Free'], [true, 'Song']]), !!state.g.song, setSong, 'pchips')));
-    if (state.g.song) {
-      const now = h('div', 'run-status song-status');
-      panel.append(now);
-      panelViews.add(() => {
-        const info = engine.harmony?.songInfo;
-        now.textContent = info ? `${info.part} · ${info[info.part]}` : 'verse and chorus start with the next chord';
-      });
+  const phrase = h('p', 'phrase');
+  const picker = h('div', 'picker');
+  const parts = [];
+  const text = (str) => parts.push(document.createTextNode(str));
+  const flip = (label, act) => {
+    const b = h('button', 'tok', esc(label));
+    b.addEventListener('click', () => { openTok = null; act(); });
+    parts.push(b);
+  };
+  const choose = (key, options, current, onPick) => {
+    const cur = options.find(([v]) => v === current) || options[0];
+    const b = h('button', 'tok' + (openTok === key ? ' open' : ''), esc(cur[1]));
+    b.setAttribute('aria-expanded', String(openTok === key));
+    b.addEventListener('click', () => { openTok = openTok === key ? null : key; renderPanel(); });
+    parts.push(b);
+    if (openTok === key) {
+      picker.append(chips(options.map(([value, label]) => ({ value, label })), cur[0], (v) => { openTok = null; onPick(v); renderPanel(); }, 'pchips'));
     }
-    panel.append(prow('Drift', chips(opts([[0, 'Off'], [5, '5 min'], [10, '10'], [20, '20'], [40, '40']]), prefs.journey, setJourney, 'pchips')));
-    panel.append(prow('Mood', chips([{ value: 'any', label: 'Any' }, ...MOODS.filter((x) => x.id !== 'run').map((x) => ({ value: x.id, label: x.name }))], prefs.mood, (v) => {
+  };
+  const whisper = h('div', 'whisper');
+
+  if (m === 'listen') {
+    flip(state.g.beat ? 'With a beat' : 'Without a beat', () => setRhythm(!state.g.beat));
+    text(' and ');
+    flip(state.g.song ? 'song chords' : 'free chords', () => setSong(!state.g.song));
+    text('. ');
+    choose('mood', [['any', 'Any'], ...MOODS.filter((x) => x.id !== 'run').map((x) => [x.id, x.name])], prefs.mood, (v) => {
       prefs.mood = v;
       save();
       if (v === 'any') toast('Random picks any mood');
       else generate();
-    }, 'pchips')));
+    });
+    text(' mood, ');
+    choose('drift', [[0, 'staying put'], [5, 'a new scene every 5 min'], [10, 'every 10 min'], [20, 'every 20 min'], [40, 'every 40 min']], prefs.journey, setJourney);
+    text('.');
+    if (state.g.song) {
+      const now = h('span');
+      whisper.append(now);
+      panelViews.add(() => {
+        const info = engine.harmony?.songInfo;
+        now.textContent = info ? `${info.part} · ${info[info.part]}` : 'the verse starts with the next chord';
+      });
+    }
   } else if (m === 'run') {
-    const top = h('div', 'prow run-top');
-    const tap = h('button', 'chip tap-mini', 'Tap');
+    const top = h('div', 'run-top');
+    const tap = h('button', 'text-btn tap-link', 'tap your steps');
     tap.setAttribute('aria-label', 'Tap along with your steps to set the cadence');
     tap.addEventListener('click', () => tapStep());
     top.append(cadenceControl(panelViews), tap);
     panel.append(top);
-    const status = h('div', 'run-status');
+    choose('iv', [['off', 'Steady'], ['1-2', 'One minute on, two easy'], ['2-2', 'Two on, two easy'], ['4-3', 'Four on, three easy']], prefs.intervals, setIntervals);
+    text(', ');
+    choose('len', [[0, 'no end'], [20, 'for 20 minutes'], [30, 'for 30 minutes'], [45, 'for 45 minutes'], [60, 'for an hour'], [90, 'for 90 minutes']], prefs.runGoal, setRunGoal);
+    text('. ');
+    flip(state.g.song ? 'Song chords' : 'Free chords', () => setSong(!state.g.song));
+    text(', ');
+    choose('bass', [['plain', 'plain bass'], ['dub', 'dub bass'], ['drive', 'driving bass'], ['psy', 'psy bass'], ['funk', 'funk bass']], state.g.groove ? state.layers.bass.p.bstyle || 'dub' : 'plain', setBass);
+    text('.');
     const lab = h('span', 'section-label');
     const time = h('span', 'run-time');
-    const skip = h('button', 'text-btn skip-btn', 'Skip');
+    const skip = h('button', 'text-btn skip-btn', 'skip');
     skip.addEventListener('click', skipPhase);
-    status.append(lab, time, skip);
-    panel.append(status);
+    const more = h('button', 'text-btn', 'more');
+    more.addEventListener('click', () => openSheet('run'));
+    whisper.append(lab, time, skip, more);
     panelViews.add(() => {
       const part = state.g.song && engine.harmony?.songInfo?.part;
       lab.textContent = (runPhaseLabel() || (conductor.active && currentSection ? currentSection.name.toLowerCase() : prefs.runSong ? 'starting' : 'steady loop')) + (part ? ` · ${part}` : '');
       time.textContent = (runElapsed >= 1 ? mmss(runElapsed) : '0:00') + (prefs.runGoal ? ` / ${prefs.runGoal}:00` : '');
       const ph = runPhase;
       skip.hidden = !['warm', 'push', 'easy'].includes(ph);
-      skip.textContent = ph === 'warm' ? 'Skip warm-up' : ph === 'push' ? 'Skip to easy' : 'Skip to push';
+      skip.textContent = ph === 'warm' ? 'skip warm-up' : ph === 'push' ? 'skip to easy' : 'skip to push';
     });
-    const more = h('button', 'text-btn more-btn', 'More');
-    more.addEventListener('click', () => openSheet('run'));
-    panel.append(prow('Intervals', chips(Object.entries(INTERVALS).map(([id, iv]) => ({ value: id, label: iv ? iv.short : 'Off' })), prefs.intervals, setIntervals, 'pchips'), more));
-    const music = h('div', 'chips pchips');
-    music.append(toggleChip('Song chords', () => !!state.g.song, setSong), toggleChip('Fresh bass', () => !!state.g.groove, setGroove));
-    panel.append(prow('Music', music));
-    panel.append(prow('Length', chips(opts([[0, 'Open'], [20, '20 min'], [30, '30'], [45, '45'], [60, '60'], [90, '90']]), prefs.runGoal, setRunGoal, 'pchips')));
   } else {
-    panel.append(prow('Timer', chips(opts([[0, 'Off'], [15, '15 min'], [30, '30'], [45, '45'], [60, '60'], [90, '90'], [120, '2 h'], [180, '3 h']]), sleepEnd ? sleepMin : 0, setSleep, 'pchips')));
-    panel.append(prow('Fade', chips(opts([[1, '1 min'], [5, '5 min'], [15, '15 min']]), prefs.sleepFade, (v) => {
+    choose('timer', [[0, 'No timer'], [15, 'Stop in 15 min'], [30, 'Stop in 30 min'], [45, 'Stop in 45 min'], [60, 'Stop in an hour'], [90, 'Stop in 90 min'], [120, 'Stop in 2 hours'], [180, 'Stop in 3 hours']], sleepEnd ? sleepMin : 0, setSleep);
+    text(', fading over ');
+    choose('fade', [[1, 'a minute'], [5, 'five minutes'], [15, 'fifteen minutes']], prefs.sleepFade, (v) => {
       prefs.sleepFade = v;
       if (sleepEnd) { sleepFading = false; engine.setVolume(prefs.volume); engine.scheduleSleep((sleepEnd - Date.now()) / 1000, fadeSecs()); }
       save();
-    }, 'pchips'), windToggle()));
-    panel.append(prow('Sound', chips(BEDS.map(([value, label]) => ({ value, label })), null, playBed, 'pchips')));
-    panel.append(prow('Breathe', chips(Object.entries(BREATHS).map(([id, b]) => ({ value: id, label: b ? b.label : 'Off' })), prefs.breath, setBreath, 'pchips')));
-    const st = h('div', 'run-status');
-    st.append(h('span', 'timer-status'));
-    panel.append(st);
-    updateTimerStatus();
+    });
+    text(', ');
+    flip(prefs.windDown ? 'winding down' : 'not winding down', () => {
+      prefs.windDown = !prefs.windDown;
+      if (!prefs.windDown) endWind();
+      toast(prefs.windDown ? 'Winds down: darker, slower, sparser as the timer runs' : 'Wind down off');
+      save();
+      renderPanel();
+    });
+    text('. ');
+    choose('bed', [[null, 'This scene'], ...BEDS.map(([v, l]) => [v, l === 'Sleepier' ? 'Something sleepier' : l])], null, (v) => { if (v) playBed(v); });
+    text(', breathing ');
+    choose('breath', Object.entries(BREATHS).map(([id, b]) => [id, b ? b.label.toLowerCase() : 'freely']), prefs.breath, setBreath);
+    text('.');
+    whisper.append(h('span', 'timer-status'));
   }
+  phrase.append(...parts);
+  panel.append(phrase);
+  if (picker.firstChild) panel.append(picker);
+  if (whisper.firstChild) panel.append(whisper);
+  if (m === 'sleep') updateTimerStatus();
   refreshViews();
+}
+
+function setBass(v) {
+  if (v === 'plain') return setGroove(false);
+  state.layers.bass.p.bstyle = v;
+  setGroove(true);
 }
 
 // Plain beds for sleeping: one sound, nothing that asks for attention.
@@ -668,13 +711,6 @@ function playBed(kind) {
   if (!started) togglePlay();
 }
 
-function toggleChip(label, get, set) {
-  const b = h('button', 'chip wind' + (get() ? ' on' : ''), label);
-  b.setAttribute('aria-pressed', String(get()));
-  b.addEventListener('click', () => set(!get()));
-  return b;
-}
-
 // Fresh bass: a syncopated line at the drum tempo. In a running song the
 // arranger shapes it per section; otherwise it just plays.
 function setGroove(v) {
@@ -693,22 +729,8 @@ function setGroove(v) {
   renderPanel();
   renderMeta();
   save();
-  toast(v ? 'Fresh bass: syncopated, at the drum tempo, leading into every chord' : 'Bass back to basics');
-}
-
-function windToggle() {
-  const b = h('button', 'chip wind' + (prefs.windDown ? ' on' : ''), 'Wind down');
-  b.setAttribute('aria-pressed', String(prefs.windDown));
-  b.title = 'The music slowly gets darker, slower and sparser until the timer ends';
-  b.addEventListener('click', () => {
-    prefs.windDown = !prefs.windDown;
-    b.classList.toggle('on', prefs.windDown);
-    b.setAttribute('aria-pressed', String(prefs.windDown));
-    if (!prefs.windDown) endWind();
-    toast(prefs.windDown ? 'Winds down: darker, slower, sparser as the timer runs' : 'Wind down off');
-    save();
-  });
-  return b;
+  const style = { dub: 'Dub bass: deep and patient', drive: 'Driving bass: fuzzed sixteenths', psy: 'Psy bass: rolling, with a sweeping filter', funk: 'Funk bass: syncopated, octave jumps' }[ls.p.bstyle] || 'Deep bass';
+  toast(v ? style : 'Plain bass');
 }
 
 function setJourney(v) {

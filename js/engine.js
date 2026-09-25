@@ -433,7 +433,8 @@ export class Engine {
     const tc = immediate ? 0.01 : 0.4;
     const is = (...ids) => !only || ids.includes(only);
     if (is('bright')) glide(this.tone.frequency, this.toneHz(), t, tc);
-    if (is('lowcut')) glide(this.lowcut.frequency, 20 * Math.pow(15, g.lowcut), t, tc);
+    // a fresh bass needs its sub: the low cut never climbs above ~26 Hz under it
+    if (is('lowcut', 'groove')) glide(this.lowcut.frequency, 20 * Math.pow(15, g.groove ? Math.min(g.lowcut, 0.1) : g.lowcut), t, tc);
     if (is('warmth')) {
       this.warm.curve = g.warmth > 0.02 ? satCurve(g.warmth * 0.7) : null;
       glide(this.warmOut.gain, 1 - g.warmth * 0.15, t, tc);

@@ -14,7 +14,7 @@ const TEX_ROLE = [...TEXTURES, 'night', 'fire', 'thunder', 'noise']; // anything
 
 // energy 0..1 · bars are drum bars (one chord = 16 bars in running mode)
 // The sound of the fresh bass: a bright saw with a snappy filter and a little grit.
-export const FRESH_BASS = { pattern: 'groove', wave: 'sawtooth', pluck: 0.6, drive: 0.3, glide: 0.12, length: 0.8, tone: 0.62, oct: 0, vol: 0.5 };
+export const FRESH_BASS = { pattern: 'groove', pluck: 0.5, drive: 0, length: 0.8, tone: 0.75, oct: 0, vol: 0.55 };
 
 export const SECTIONS = {
   intro:     { name: 'Intro',     energy: 0.3,  bars: [16],     next: { groove: 1 } },
@@ -150,9 +150,7 @@ export class Conductor {
     if (type === 'intro') { if (on('bass')) set('bass', false); }
     else if (fresh) {
       // the fresh bass: held through a breakdown, busier as the song lifts
-      set('bass', true, type === 'breakdown'
-        ? { pattern: 'held', vol: 0.4 }
-        : { ...FRESH_BASS, busy: type === 'build' ? 0.3 : clamp(lerp(0.35, 0.95, e) + rand(-0.08, 0.08), 0, 1) }, barDur * 0.25);
+      set('bass', true, { ...FRESH_BASS, busy: type === 'breakdown' ? 0 : type === 'build' ? 0.3 : clamp(lerp(0.3, 1, e) + rand(-0.08, 0.08), 0, 1) }, barDur * 0.25);
     } else set('bass', true, {
       pattern: type === 'breakdown' || type === 'build' ? 'held' : e >= 0.95 ? pick(['pulse', 'synco', 'pulse']) : e >= 0.75 ? pick(['pulse', 'roots']) : pick(['roots', 'pulse', 'rootfifth']),
       vol: type === 'breakdown' ? 0.4 : 0.5,
