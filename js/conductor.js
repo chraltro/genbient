@@ -60,7 +60,7 @@ export class Conductor {
   stop() {
     this.active = false;
     const song = this.e.harmony?.song;
-    if (song) { song.locked = false; if (song.part !== 'verse') this.e.harmony.setPart('verse'); song.locked = false; song.passes = -1; }
+    if (song) { if (song.part !== 'verse') this.e.harmony.setPart('verse'); song.locked = false; song.queued = null; song.passes = -1; }
     if (this.ctx) glide(this.e.arr.frequency, 20000, this.ctx.currentTime, 0.5);
     this.host.onSection(null);
   }

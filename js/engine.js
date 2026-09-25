@@ -353,7 +353,7 @@ export class Engine {
       const grp = l.def.group;
       let f = 20;
       if (['pad', 'choir', 'strings'].includes(id)) f = beat ? 220 : 140;
-      else if (id === 'drone') f = bass ? 100 : 25;
+      else if (id === 'drone') f = beat ? 60 : 25; // keep its fundamental, lose only the sub rumble
       else if (grp === 'nature') f = this.g.beat ? 120 : 25;
       else if (grp === 'melody') f = beat ? 150 : 40;
       if (Math.abs((l.hpTarget || 20) - f) > 1) { l.hpTarget = f; glide(l.hpf.frequency, f, t, 1.5); }

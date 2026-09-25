@@ -36,7 +36,7 @@ export class Arp extends Melodic {
     lp.frequency.setValueAtTime(600 + p.pluck * (hard ? 3200 : 5000) * v, t);
     lp.frequency.setTargetAtTime(350 + (1 - p.pluck) * 1500, t + 0.005, 0.05 + dur * 0.3);
     const amp = gain(ctx, 0);
-    const lvl = 0.22 * v * (p.wave === 'square' || p.wave === 'sawtooth' ? 0.6 : 1);
+    const lvl = 0.22 * v * (hard ? (this.e.lite ? 0.6 : 0.42) : 1); // the twin adds level; take it back
     amp.gain.setValueAtTime(0, t);
     amp.gain.linearRampToValueAtTime(lvl, t + 0.005);
     amp.gain.setTargetAtTime(0, t + Math.max(0.03, dur), 0.07);

@@ -264,7 +264,7 @@ function remember_(s) {
   const last = history_[history_.length - 1];
   if (last && last.code === code) return;
   // the same scene, changed (a beat added, a run started): keep only its latest form
-  if (last && last.name === s.name) history_.pop();
+  if (last && last.name === s.name && last.mood === s.mood) history_.pop();
   history_.push({ code, name: s.name, mood: s.mood });
   if (history_.length > 30) history_.shift();
   store.set('history', history_);

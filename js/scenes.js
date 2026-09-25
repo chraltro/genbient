@@ -114,7 +114,8 @@ function chooseLayers(r, mood, energy, rhythmMode) {
   const nt = r.chance(0.8) ? r.int(1, 2) : 0;
   for (let i = 0; i < nt; i++) chosen.add(r.weighted(texture, texture.map((id) => w(id) * (id === 'binaural' ? 0.4 : 1))));
   // seven layers at most: past that the mix turns to soup. Weather goes first, then extra percussion.
-  const order = [...texture, 'wood', 'handdrum', 'pulse', 'shaker'];
+  // the mood's least-loved textures go first, so a storm keeps its rain
+  const order = [...[...texture].sort((a, b) => w(a) - w(b)), 'wood', 'handdrum', 'pulse', 'shaker'];
   for (const id of order) if (chosen.size > 7 && chosen.has(id)) chosen.delete(id);
   return chosen;
 }
@@ -347,7 +348,9 @@ export function normalize(s) {
     tagline: String(s?.tagline || '').slice(0, 80),
     mood: MOOD_BY_ID[s?.mood] ? s.mood : 'oceanic',
     prevMood: MOOD_BY_ID[s?.prevMood] ? s.prevMood : undefined,
-    preRun: s?.preRun && typeof s.preRun === 'object' ? Object.fromEntries(Object.entries(s.preRun).filter(([, v]) => Number.isFinite(v))) : undefined,
+    preRun: s?.preRun && typeof s.preRun === 'object'
+      ? Object.fromEntries(['revSize', 'revMix', 'revPre', 'bright', 'drift', 'pump'].filter((k) => Number.isFinite(s.preRun[k])).map((k) => [k, clamp(s.preRun[k], 0, 1)]))
+      : undefined,
     energy: clamp(Number(s?.energy) || 0.3, 0, 1),
     seed: s?.seed >>> 0,
     palette: paletteId(s?.palette),

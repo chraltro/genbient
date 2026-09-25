@@ -219,7 +219,8 @@ export class Melodic extends Layer {
     const pos = info.step % len;
     if (pos === 0 || !this.motif) {
       this.phrase++;
-      this.cadence = this.phrase % 4 === 3 && len >= 8;
+      // with call & response each voice answers on its own last phrase
+      this.cadence = len >= 8 && this.phrase % 4 === (g.callResponse ? 2 + this.side : 3);
       this.home = chance(0.7) ? 0 : 4;
       const fresh = !this.motif || this.motif.steps !== len;
       if (fresh || (this.phrase > 0 && !chance(g.repetition))) {
@@ -233,7 +234,7 @@ export class Melodic extends Layer {
         }
       }
       this.resting = this.phrase > 0 && !this.cadence && chance(g.rests * 0.4);
-      if (g.callResponse && this.phrase % 2 !== (this.def.side ?? 0)) this.resting = true;
+      if (g.callResponse && this.phrase % 2 !== this.side) this.resting = true;
     }
     if (this.resting) return;
     const half = Math.floor(len / 2);
@@ -245,6 +246,14 @@ export class Melodic extends Layer {
     const hits = this.index && this.index.get(pos);
     if (!hits) return;
     for (const n of hits) this.playKey(info, n.d, n.v, n.len * info.dur * (this.p.legato ?? 1), n.snap);
+  }
+
+  // Call & response: the melodies playing motifs take alternate sides, so two
+  // of them always trade phrases instead of resting together.
+  get side() {
+    const singers = Object.values(this.e.layers).filter((l) => l.on && l instanceof Melodic && (l.p.style ?? 'motif') === 'motif');
+    const i = singers.indexOf(this);
+    return i < 0 ? this.def.side ?? 0 : i % 2;
   }
 
   // A degree of the key, pulled onto the nearest chord tone when it should rest there.

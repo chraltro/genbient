@@ -1,5 +1,5 @@
 // Offline support: serve the app shell from cache, refresh it in the background.
-const CACHE = 'genbient-v17';
+const CACHE = 'genbient-v18';
 const SHELL = [
   './', 'index.html', 'css/style.css', 'manifest.webmanifest',
   'js/main.js', 'js/engine.js', 'js/scenes.js', 'js/theory.js', 'js/util.js', 'js/visuals.js', 'js/params.js',

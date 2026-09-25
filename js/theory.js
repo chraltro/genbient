@@ -133,7 +133,10 @@ export class Harmony {
   newSong() {
     let list = progressionsFor(this.mode, this.len);
     // in a running song sections are 16 bars of four-bar chords: 2 or 4 chords fit whole
-    if (this.opts.fourBar) list = list.filter((p) => p.degrees.length === 2 || p.degrees.length === 4).concat(list.length ? [] : list);
+    if (this.opts.fourBar) {
+      const fit = list.filter((p) => p.degrees.length === 2 || p.degrees.length === 4);
+      if (fit.length) list = fit;
+    }
     if (!list.length) { this.song = null; return false; }
     const verse = pick(list);
     const others = list.filter((p) => p !== verse);

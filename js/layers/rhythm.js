@@ -35,7 +35,9 @@ export class Kick extends Drum {
     const h = this.e.harmony;
     const want = this.p.pitch;
     let best = want;
-    for (const d of [0, 4]) {
+    // the fifth found by sound, so five-note scales don't give a sixth or a seventh
+    const fifth = h.steps.indexOf(7);
+    for (const d of fifth >= 0 ? [0, fifth] : [0]) {
       for (let o = 0; o <= 2; o++) {
         const f = h.hz(d, o);
         if (Math.abs(Math.log2(f / want)) < Math.abs(Math.log2(best / want)) || best === want) best = f;

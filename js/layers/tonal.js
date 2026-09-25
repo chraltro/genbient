@@ -524,7 +524,7 @@ export class Bass extends Layer {
       this.deep(t, hz(run[4 - end]), 0.75 + (4 - end) * 0.06, step * S.gap, S);
       return;
     }
-    const note = this.bar.find((n) => n[0] === pos);
+    const note = info.sib < 16 && this.bar.find((n) => n[0] === pos); // long bars rest after the pattern
     if (!note) return;
     const [, role, len, vel] = note;
     // roles by sound, not by scale step, so pentatonic scales get a real fifth

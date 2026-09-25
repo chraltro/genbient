@@ -98,7 +98,7 @@ body[data-mode="run"].idle .title::before { opacity: 0.6; }
 }
 .tok:active, .tok.open { color: var(--accent); background-image: linear-gradient(var(--accent), var(--accent)); }
 .picker { margin: 10px 0 2px; }
-.picker .chips.pchips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; gap: 4px; padding: 2px 0; margin: 0 -20px; padding-left: 20px; padding-right: 20px; touch-action: pan-x; }
+.picker .chips.pchips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; gap: 4px; padding: 2px 0; margin: 0 -20px; padding-left: 20px; padding-right: 44px; touch-action: pan-x; }
 .picker .chips.pchips::-webkit-scrollbar { display: none; }
 .pchips .chip { flex: none; min-height: 36px; padding: 8px 12px; font: italic 400 15px/1 var(--serif); background: var(--bg); white-space: nowrap; }
 .pchips .chip.on { background: var(--ink); }
@@ -234,7 +234,7 @@ body[data-mode="run"].idle .panel .phrase, body[data-mode="run"].idle .panel .pi
 .chip.on { color: var(--bg); background: var(--ink); border-color: var(--ink); }
 .chips.keys { display: grid; grid-template-columns: repeat(6, 1fr); }
 .chips.keys .chip { padding: 10px 0; text-align: center; font: 400 14px/1 var(--mono); }
-.chips.scroll { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 -20px; padding: 0 20px 2px; touch-action: pan-x; }
+.chips.scroll { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 -20px; padding: 0 44px 2px 20px; touch-action: pan-x; }
 .chips.scroll::-webkit-scrollbar { display: none; }
 .chips.scroll .chip { flex: none; white-space: nowrap; }
 .chips.filter { margin: 6px -20px 8px; }
