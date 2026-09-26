@@ -398,25 +398,26 @@ function bassFor(r, G, beat) {
     ['held', 3 * (0.4 - G.pulse)],
     ['roots', 0.3 - Math.abs(G.pulse - 0.5)],
     ['rootfifth', 0.2 - Math.abs(G.pulse - 0.55) + (1 - G.strange) * 0.1],
-    ['pulse', 1.5 * (G.repeat - 0.6) + (G.pace - 0.5) + (G.pulse - 0.5)],
+    ['pulse', 1.5 * (G.repeat - 0.6) + (G.pulse - 0.5) - 0.3],
     ['synco', 1.5 * (G.sync - 0.5) + (G.pulse - 0.5)],
     ['walk', 1.5 * (G.organic - 0.6) + 1.5 * (G.tension - 0.5) + (G.motion - 0.5)],
-    ['broken', (G.melody - 0.5) + 0.5 * (0.5 - G.pulse) - 0.1],
+    ['broken', (G.melody - 0.5) + 0.5 * (0.5 - G.pulse) - 0.4],
   ];
+  // A bass line is felt more than followed: in this music it moves one to
+  // three times a second. The rolling sixteenth grooves (drive, psy) belong
+  // to running, not to listening, so they aren't offered here.
   if (beat) {
     opts.push(['dub', 1.5 * (G.space - 0.5) + 1.5 * (0.45 - G.light) + (G.pulse - 0.5) + 0.5 * (0.5 - G.pace)]);
-    opts.push(['drive', 2 * (G.pace - 0.6) + (G.pulse - 0.6) + 0.5 * (0.5 - G.organic)]);
-    opts.push(['psy', 2 * (G.strange - 0.5) + 1.5 * (0.4 - G.organic) + (G.pace - 0.5)]);
-    opts.push(['funk', 2 * (G.sync - 0.5) + (G.organic - 0.5) + (G.tension - 0.4)]);
+    opts.push(['funk', 2 * (G.sync - 0.5) + (G.organic - 0.5) + (G.tension - 0.4) - 0.2]);
   }
   const [pat] = choose(r, opts, ([, s]) => s, 0.25);
-  const groove = ['dub', 'drive', 'psy', 'funk'].includes(pat);
+  const groove = ['dub', 'funk'].includes(pat);
   const preset = groove ? PRESETS.bass[pat === 'funk' ? 'funk' : 'dub'] : pat === 'held' ? PRESETS.bass.held : pat === 'pulse' ? PRESETS.bass.pulse : pat === 'walk' ? PRESETS.bass.walk : PRESETS.bass.roots;
   const p = sound(r, 'bass', preset, G);
-  if (groove) { p.pattern = 'groove'; p.bstyle = pat; p.busy = 0.3 + G.density * 0.5; } else p.pattern = pat;
+  if (groove) { p.pattern = 'groove'; p.bstyle = pat; p.busy = 0.1 + G.density * 0.3; } else p.pattern = pat;
   if (!groove) p.wave = G.organic > 0.55 ? r.pick(['triangle', 'sine', 'triangle']) : r.pick(['sawtooth', 'triangle', 'square']);
   p.drive = clamp((1 - G.organic) * 0.3 * G.pulse + G.age * 0.1, 0, 0.4);
-  p.glide = clamp(G.strange * 0.25 + (pat === 'psy' ? 0.1 : 0), 0, 0.4);
+  p.glide = clamp(G.strange * 0.25, 0, 0.4);
   p.tone = clamp(0.4 + G.bright * 0.35, 0.35, 0.8);
   return p;
 }

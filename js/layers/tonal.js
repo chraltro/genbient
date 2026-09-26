@@ -479,7 +479,7 @@ export class Bass extends Layer {
     R('busy', 'Groove busyness', 0, 1, 0.6, { hint: 'for the Groove pattern: sparse to busy' }),
     C('bstyle', 'Groove style', [['dub', 'Dub'], ['drive', 'Drive'], ['psy', 'Psy'], ['funk', 'Funk']], 'dub'),
   ];
-  start() { this.lastF = null; this.walk = 0; this.bar = null; }
+  start() { this.lastF = null; this.lastT = null; this.walk = 0; this.bar = null; }
   // the groove runs at the drum tempo even when the music is in half-time
   get fullTime() { return this.p.pattern === 'groove' && this.g.beat; }
 
@@ -526,6 +526,8 @@ export class Bass extends Layer {
     }
     const note = info.sib < 16 && this.bar.find((n) => n[0] === pos); // long bars rest after the pattern
     if (!note) return;
+    // at fast tempos the sixteenths in between go: a bass that rattles isn't felt
+    if (step < 0.12 && pos % 2 === 1) return;
     const [, role, len, vel] = note;
     // roles by sound, not by scale step, so pentatonic scales get a real fifth
     const deg = { R: root, O: root + h.len, F: this.degAt(root, 7), 7: this.degAt(root, 10.5), 3: this.degAt(root, 3.5), g: root }[role];
@@ -548,6 +550,7 @@ export class Bass extends Layer {
   // filtered on top. Phones hear the body; headphones and cars feel the sub.
   deep(t, f, v, dur, S) {
     const { ctx, p } = this;
+    if (this.tooSoon(t)) return;
     v = this.vel(v);
     const srcs = [osc(ctx, S.wave, f), osc(ctx, 'sine', f)];
     if (S.wave2) srcs.push(osc(ctx, S.wave2, f, 7));
@@ -627,8 +630,16 @@ export class Bass extends Layer {
     if (deg == null) return;
     this.play(this.e.human(info.t), h.hz(deg, 2 + p.oct), this.vel(0.6 + a * 0.4), Math.max(0.12, len(steps)));
   }
+  // Never more than about five notes a second, whatever the pattern says.
+  tooSoon(t) {
+    if (this.lastT != null && t - this.lastT < 0.19 && t > this.lastT) return true;
+    this.lastT = t;
+    return false;
+  }
+
   play(t, f, v, dur) {
     const { ctx, p } = this;
+    if (this.tooSoon(t)) return;
     const o = osc(ctx, p.wave, f);
     if (this.lastF && p.glide > 0.02) {
       o.frequency.setValueAtTime(this.lastF, t);
