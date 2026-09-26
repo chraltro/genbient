@@ -74,3 +74,7 @@ It works in current Safari (iOS and macOS), Chrome and Firefox. On iPhone, keep 
 ## Deployment
 
 `.github/workflows/pages.yml` publishes the `main` branch to GitHub Pages.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
