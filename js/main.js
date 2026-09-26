@@ -35,7 +35,7 @@ prefs.vp = fill(prefs.vp, VISUAL_PARAMS);
 
 const engine = new Engine();
 engine.volume = prefs.volume;
-// Leonora's ears: her mode never goes above 60% of the phone's volume
+// Simple mode is for small ears too: it never goes above 60% of the phone's volume
 const vol = () => (prefs.mode === 'kids' && !running() ? Math.min(prefs.volume, 0.6) : prefs.volume);
 const visuals = new Visuals($('#bg'), engine);
 visuals.setParams(prefs.vp);
@@ -795,11 +795,11 @@ $('#btn-full').addEventListener('click', enterImmersive);
   ring.addEventListener('contextmenu', (e) => e.preventDefault());
 })();
 
-/* ─────────────────────────── Leonora ─────────────────────────── */
+/* ─────────────────────────── Simple mode ─────────────────────────── */
 
-// A simpler corner for a child: pick a world, pick what your finger plays,
-// play with the whole screen. Every world uses a five-note happy scale, so
-// whatever she plays fits, and the volume never goes past 60%.
+// One-tap play, good for children too: pick a world, pick what your finger
+// plays, play with the whole screen. Every world uses a five-note happy
+// scale, so whatever you play fits, and the volume never goes past 60%.
 const WORLDS = {
   ocean: { name: 'Ocean', mood: 'oceanic', bed: 'ocean', tune: 'bells', palette: 'tide', icon: '<path d="M3 10c2-3 4-3 6 0s4 3 6 0 4-3 6 0M3 15c2-3 4-3 6 0s4 3 6 0 4-3 6 0"/>' },
   forest: { name: 'Forest', mood: 'sylvan', bed: 'birds', tune: 'marimba', palette: 'moss', icon: '<path d="M12 3l6 8h-4l4 6H6l4-6H6zM12 17v4"/>' },
@@ -817,7 +817,7 @@ function kidsScene(world) {
   on('pad', { vol: 0.5, oct: 0 });
   on(w.bed, { vol: 0.55 });
   on(w.tune, { vol: 0.42, style: 'motif', density: 0.4, oct: 0 });
-  Object.assign(s, { name: `Leonora's ${w.name}`, tagline: '', palette: w.palette, mode: 'majpent', root: pick([0, 2, 5, 7]), kids: world });
+  Object.assign(s, { name: w.name, tagline: '', palette: w.palette, mode: 'majpent', root: pick([0, 2, 5, 7]), kids: world });
   Object.assign(s.g, { song: true, groove: false, bpm: 76, meter: '4/4', touchMode: 'both', touchNotes: 'scale', touchVoice: prefs.kidVoice || 'bell', touchLevel: 0.8, touchEcho: 0.35, touchRange: 2, touchSculpt: 0.35 });
   return s;
 }

@@ -427,7 +427,7 @@ body, #app { -webkit-touch-callout: none; }
 }
 .immersive .immersive-hint.show { opacity: 1; }
 
-/* ─── Leonora ─── */
+/* ─── Simple mode ─── */
 .kids { margin-top: 4px; }
 .kids-q { margin: 10px 0 8px; font: italic 400 17px/1.2 var(--serif); color: var(--ink-2); text-shadow: 0 0 10px var(--bg); }
 .worlds { display: flex; gap: 10px; overflow-x: auto; scrollbar-width: none; margin: 0 -20px; padding: 2px 20px 4px; }
