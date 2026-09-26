@@ -85,6 +85,7 @@ function satCurve(amount) {
 
 export class Engine {
   constructor() {
+    this.evolveBase = new Map();
     this.ctx = null;
     this.layers = {};
     this.handlers = {};
@@ -164,7 +165,15 @@ export class Engine {
     this.master = gain(ctx, 0);
     this.mix.connect(this.lowcut).connect(this.tone).connect(this.sculpt).connect(this.arr).connect(this.warm).connect(this.warmOut)
       .connect(this.wow).connect(this.chIn);
-    this.chOut.connect(this.drive).connect(this.comp).connect(this.limit).connect(this.master).connect(ctx.destination);
+    // a slow automatic level, so a sparse piano and a full band sit at about
+    // the same loudness (within a few dB) and changing scenes doesn't jump
+    this.agc = gain(ctx, 1);
+    this.agcMeter = ctx.createAnalyser();
+    this.agcMeter.fftSize = 2048;
+    this.agcBuf = new Float32Array(2048);
+    this.agcLevel = null;
+    this.chOut.connect(this.agcMeter);
+    this.chOut.connect(this.agc).connect(this.drive).connect(this.comp).connect(this.limit).connect(this.master).connect(ctx.destination);
 
     this.analyser = ctx.createAnalyser();
     this.analyser.fftSize = 1024;
@@ -276,12 +285,12 @@ export class Engine {
 
     for (const id in this.layers) {
       const l = this.layers[id];
-      if (l.running) {
+      if (l.running && !l.benched) {
         try { l.schedule(now, horizon); } catch (err) { console.error(id, err); }
       }
     }
 
-    if (!(this.guardAt > now)) { this.lowGuard(now); this.guardAt = now + 1; }
+    if (!(this.guardAt > now)) { this.lowGuard(now); this.autoLevel(now); this.guardAt = now + 1; }
     if (now >= this.nextDriftAt) {
       const d = this.g.drift;
       glide(this.tone.frequency, this.toneHz() * rand(1 - 0.4 * d, 1 + 0.25 * d), now, rand(3, 8));
@@ -342,7 +351,7 @@ export class Engine {
     }
     for (const id in this.layers) {
       const l = this.layers[id];
-      if (!l.running) continue;
+      if (!l.running || l.benched) continue;
       const li = l.def.group === 'rhythm' || l.fullTime ? info : slow;
       if (!li) continue;
       try { l.onStep(li); } catch (err) { console.error(id, err); }
@@ -429,6 +438,19 @@ export class Engine {
     this.emit('chord', h);
   }
 
+  autoLevel(now) {
+    if (!this.agcMeter) return;
+    this.agcMeter.getFloatTimeDomainData(this.agcBuf);
+    let sum = 0;
+    for (const x of this.agcBuf) sum += x * x;
+    const rms = Math.sqrt(sum / this.agcBuf.length);
+    if (rms < 0.004) return; // silence says nothing about level
+    // about twenty seconds of memory, so a phrase's rests don't pump
+    this.agcLevel = this.agcLevel == null ? rms : this.agcLevel + (rms - this.agcLevel) * 0.05;
+    const gainNow = clamp(0.11 / this.agcLevel, 0.7, 1.8);
+    glide(this.agc.gain, gainNow, now, 3);
+  }
+
   /* ─── evolution: sounds slowly reshape themselves ─── */
 
   evolve() {
@@ -443,12 +465,16 @@ export class Engine {
     for (let i = 0; i < n && cands.length; i++) {
       const p = pick(cands);
       const span = p.max - p.min;
-      const v = clamp(l.p[p.id] + rand(-1, 1) * span * (0.06 + e * 0.14), p.min, p.max);
+      // breathe around the sound as it was designed, never wander away from it
+      const key = `${l.id}.${p.id}`;
+      if (!this.evolveBase.has(key)) this.evolveBase.set(key, l.p[p.id]);
+      const v = clamp(this.evolveBase.get(key) + rand(-1, 1) * span * (0.04 + e * 0.1), p.min, p.max);
       this.emit('evolve', { layer: l.id, id: p.id, value: v });
     }
     if (chance(e * 0.4)) {
       const gp = pick(['bright', 'density', 'spread', 'complexity', 'revMix', 'chorus']);
-      const v = clamp(this.g[gp] + rand(-0.1, 0.1) * (0.5 + e), 0, 1);
+      if (!this.evolveBase.has(gp)) this.evolveBase.set(gp, this.g[gp]);
+      const v = clamp(this.evolveBase.get(gp) + rand(-0.08, 0.08) * (0.5 + e), 0, 1);
       this.emit('evolve', { global: true, id: gp, value: v });
     }
   }
@@ -537,6 +563,7 @@ export class Engine {
   // Bring the engine in line with a scene. Everything crossfades.
   apply(scene, { fade = 4 } = {}) {
     this.g = { ...this.g, ...scene.g };
+    this.evolveBase = new Map();
     this.syncHarmonyOpts();
     if (!this.ctx) return;
     this.applyGlobals();
@@ -555,6 +582,8 @@ export class Engine {
     }
     for (const id in this.layers) {
       const l = this.layers[id];
+      l.presence = 1; // a new scene starts whole; an arranger may then thin it
+      l.restAt = 0;
       if (scene.layers[id] && scene.layers[id].on) l.enable(fade);
       else l.disable(fade);
     }

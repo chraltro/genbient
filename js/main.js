@@ -1,5 +1,7 @@
 import { Engine } from './engine.js';
 import { Conductor, FRESH_BASS } from './conductor.js';
+import { Tide } from './tide.js';
+import { DIMS, DIM_BY_ID } from './genome.js';
 import { Recorder } from './recorder.js';
 import { StepSense } from './stepsense.js';
 import { Visuals } from './visuals.js';
@@ -262,7 +264,7 @@ function generate() {
   if (mode() === 'kids') return kidsSurprise();
   if (running()) { newRunMusic(); toast('New music, same beat', undoAction()); return; }
   const mood = prefs.mood === 'any' ? undefined : prefs.mood;
-  applyScene(songify(generateScene(newSeed(), { mood, energy: prefs.energy ?? undefined, rhythm: state.g.beat ? undefined : false })));
+  applyScene(songify(generateScene(newSeed(), { mood, energy: prefs.energy ?? undefined, rhythm: !!state.g.beat, shape: prefs.shape })));
   if (!started) togglePlay();
   else toast(state.name, undoAction());
 }
@@ -522,6 +524,15 @@ function syncConductor(restart) {
   if (engine.ctx) engine.drive.gain.setTargetAtTime(want ? 0.75 : 0.95, engine.ctx.currentTime, 0.5);
   if (want && (restart || !conductor.active)) { conductor.start(); syncLock(); }
   else if (!want && conductor.active) conductor.stop();
+  syncTide(restart);
+}
+
+// Listening has its own arranger: parts come and go on a slow tide.
+const tide = new Tide(engine, { get state() { return state; } });
+function syncTide(restart) {
+  const want = started && mode() === 'listen' && prefs.tide !== false;
+  if (want && (restart || !tide.active)) tide.start();
+  else if (!want && tide.active) tide.stop();
 }
 const cadenceViews = new Set();
 
@@ -605,6 +616,7 @@ function renderModes() {
   document.body.dataset.mode = m;
   engine.setVolume(vol());
   visuals.drawing = m === 'kids'; // in Simple mode a finger leaves colour behind
+  if (typeof syncTide === 'function') syncTide(false);
   if (typeof wakeBreath === 'function') wakeBreath();
 }
 document.querySelectorAll('.modes [data-mode]').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
@@ -649,6 +661,23 @@ function renderPanel() {
     text(' mood, ');
     choose('drift', [[0, 'staying put'], [5, 'a new scene every 5 min'], [10, 'every 10 min'], [20, 'every 20 min'], [40, 'every 40 min']], prefs.journey, setJourney);
     text('.');
+    // the piece's own qualities, each one a word to change
+    if (state.genome) {
+      const quality = (id, cap) => {
+        const opts = shapeWords(id).map(([v, w]) => [v, cap ? w[0].toUpperCase() + w.slice(1) : w]);
+        const held = prefs.shape?.[id] != null;
+        choose(`shape-${id}`, held ? [...opts, ['free', 'let it wander']] : opts, bucket(state.genome[id]), (v) => (v === 'free' ? letGo(id) : reshape({ [id]: v })));
+      };
+      text(' ');
+      quality('pace', true);
+      text(', ');
+      quality('light');
+      text(' and ');
+      quality('density');
+      text(', ');
+      quality('space');
+      text('.');
+    }
     if (state.g.song) {
       const now = h('span');
       whisper.append(now);
@@ -751,6 +780,31 @@ function renderPanel() {
   if (whisper.firstChild) panel.append(whisper);
   if (m === 'sleep') updateTimerStatus();
   refreshViews();
+}
+
+/* ─── shape: steer the piece by its qualities ─── */
+
+// The five words of a quality, each standing for the middle of its fifth.
+const shapeWords = (id) => DIM_BY_ID[id].words.map((w, i) => [(i + 0.5) / 5, w]);
+const bucket = (v) => (Math.min(4, Math.floor(v * 5)) + 0.5) / 5;
+
+// Change a quality of the piece that's playing: the same piece, reshaped.
+// The choice is held, so new scenes keep it until it's let go.
+function reshape(changes) {
+  prefs.shape = { ...(prefs.shape || {}), ...changes };
+  save();
+  if (!state.genome || running() || mode() === 'kids') return;
+  const mood = prefs.mood === 'any' ? undefined : prefs.mood;
+  const next = generateScene(state.seed, { mood, genome: { ...state.genome, ...changes }, rhythm: !!state.g.beat });
+  next.name = state.name;
+  next.tagline = state.tagline;
+  applyScene(songify(next), { fade: 5, animate: false });
+}
+
+function letGo(id) {
+  if (id) delete prefs.shape?.[id];
+  else prefs.shape = {};
+  save();
 }
 
 // Picking a mood plays a new scene in it; Any lets Random choose again.
@@ -1590,6 +1644,7 @@ function setGlobal(id, v) {
   if (id === 'groove') return setGroove(v);
   state.g[id] = v;
   engine.setGlobal(id, v);
+  engine.evolveBase.delete(id); // the listener's choice is the new centre
   if (id === 'bpm' || id === 'meter') { renderMeta(); refreshViews(); }
   save();
 }
@@ -1669,6 +1724,25 @@ function renderCreate(el) {
   mood.append(chips([{ value: 'any', label: 'Any' }, ...MOODS.filter((m) => m.id !== 'run').map((m) => ({ value: m.id, label: m.name }))], prefs.mood, (v) => { pickMood(v); }, 'scroll'));
   el.append(mood);
 
+  if (state.genome) {
+    const held = Object.keys(prefs.shape || {}).length;
+    const shp = section('Shape', held ? 'held qualities stay in new scenes' : 'move one and the piece reshapes');
+    let pending = null;
+    for (const d of DIMS) {
+      const prm = { id: d.id, label: d.name + (prefs.shape?.[d.id] != null ? ' · held' : ''), type: 'range', min: 0, max: 1, step: 0.01, fmt: (v) => DIM_BY_ID[d.id].words[Math.min(4, Math.floor(v * 5))] };
+      shp.append(control(prm, state.genome[d.id], (v) => {
+        clearTimeout(pending);
+        pending = setTimeout(() => { reshape({ [d.id]: v }); renderSheet(); }, 600);
+      }));
+    }
+    if (held) {
+      const free = h('button', 'text-btn', 'let everything wander');
+      free.addEventListener('click', () => { letGo(); renderSheet(); renderPanel(); toast('Nothing held'); });
+      shp.append(free);
+    }
+    el.append(shp);
+  }
+
   const en = section('Energy');
   en.append(chips([[null, 'Any'], [0.03, 'Still'], [0.2, 'Calm'], [0.45, 'Flowing'], [0.7, 'Groove'], [0.9, 'Lively']].map(([v, l]) => ({ value: v, label: l })),
     prefs.energy, (v) => { prefs.energy = v; save(); }));
@@ -1686,7 +1760,7 @@ function renderCreate(el) {
     list.append(b);
   }
   const mut = h('button', 'reroll', 'Nudge everything');
-  mut.addEventListener('click', () => { applyScene(mutateScene(state, newSeed()), { fade: 6 }); toast('Nudged', undoAction()); });
+  mut.addEventListener('click', () => { applyScene(mutateScene(state, newSeed(), prefs.shape), { fade: 6 }); toast('Nudged', undoAction()); });
   list.append(mut);
   rr.append(list);
   el.append(rr);
@@ -1734,6 +1808,9 @@ function layerCard(def, hd, count) {
   tg.setAttribute('aria-pressed', String(ls.on));
   tg.addEventListener('click', () => {
     ls.on = !ls.on;
+    // a part switched by hand is the listener's: the tide leaves it alone
+    delete state.roles?.[def.id];
+    tide.release(def.id);
     row.classList.toggle('on', ls.on);
     tg.setAttribute('aria-pressed', String(ls.on));
     hd.querySelector('small').textContent = `${count()} of ${LAYERS.length} playing`;
@@ -1743,7 +1820,7 @@ function layerCard(def, hd, count) {
   });
   const ctl = h('div', 'layer-controls');
   const inner = h('div');
-  const setP = (pid, v) => { ls.p[pid] = v; if (started) engine.layers[def.id].set(pid, v); save(); };
+  const setP = (pid, v) => { ls.p[pid] = v; engine.evolveBase.delete(`${def.id}.${pid}`); if (started) engine.layers[def.id].set(pid, v); save(); };
   const volP = def.schema.find((p) => p.id === 'vol');
   inner.append(control(volP, ls.p.vol, (v) => setP('vol', v), `${def.id}.vol`));
   const bar = h('div', 'layer-bar');
@@ -2009,7 +2086,7 @@ setInterval(() => {
     updateTimerStatus();
   }
   if (engine.playing && prefs.journey && !conductor.active && !winding && focus.phase !== 'focus' && now - lastSceneChange > prefs.journey * 60000) {
-    applyScene(mutateScene(state, newSeed()), { fade: 10 });
+    applyScene(mutateScene(state, newSeed(), prefs.shape), { fade: 10 });
   }
 }, 1000);
 

@@ -8,7 +8,7 @@ It installs as an app from the browser's share menu ("Add to Home Screen") and w
 
 ## Five ways to use it
 
-- **Listen.** Ambient scenes in twelve moods. The line under the title reads like a sentence (*"With a beat and song chords. Oceanic mood, staying put."*), and every underlined word is a control.
+- **Listen.** Ambient pieces that never repeat. The line under the title reads like a sentence (*"With a beat and song chords. Ocean mood, staying put. Slow, dusky and sparse, in a hall."*), and every underlined word is a control. Change *slow* to *walking* and the same piece reshapes itself; the choice is held for the scenes that follow. While you listen, parts come and go on a slow tide, so the music breathes.
 - **Run.** Set a cadence, tap along with your steps, or let the phone count them with its motion sensor and follow you. The kick lands on every step, and the rest of the music plays at half speed so it stays calm. An arranger turns the loop into an evolving song with intro, groove, lift, peak, breakdown and build. It also has interval training (push and easy stretches marked by two soft bells), a run length that ends in a cool-down, and a choice of bass lines (dub, driving, psy, funk).
 - **Focus.** Work in rounds (25 minutes of focus and 5 minute breaks, for example). The music thins out and holds still while you work and opens up on breaks, with a soft bell at each change.
 - **Sleep.** A timer with a long fade, and *wind down*, which makes the music gradually darker, slower and sparser. You can pick one-tap sleep sounds (rain, ocean, brown noise, stream, night, fire) and follow a breathing guide.
@@ -23,6 +23,19 @@ You can also:
 - **Share** a short link that recreates the exact scene (`#amber-harbor.z…`, compressed, named after the scene).
 
 ## How the music is made
+
+**A piece is a point in a space, not a preset.** Every scene is a *genome* of 21 continuous qualities a listener can actually hear: pace, pulse, syncopation, density, light, tension, how the chords move, strangeness, how many voices, how melodic, how repetitive, register, brightness, touch, material, space, age, nature, element, life and change. The moods (Airports, Rain Piano, Downtempo…) are only named places in that space to start from; everything around and between them is reachable.
+
+The genome is realised by principles from music perception, not by picking from lists:
+
+- **Sounds by character.** Each designed sound is described by brightness, attack, material, register and how exotic it is. Parts (a bed, a lead, an answer, a halo, a bass, weather) are cast by fit, then every sound is bent continuously toward the genome.
+- **What a listener can follow.** One to four musical voices, never more: people hear about three to four streams at once.
+- **Rhythm by measurement.** Drum patterns are chosen by their measured syncopation (Longuet-Higgins & Lee). Groove research finds pleasure peaks at a medium amount.
+- **Melody by how melodies work.** A rhythm cell that repeats, an arch that rises and falls back, small steps that continue and leaps that turn back (Narmour's implication–realisation), and phrase endings on home. Airport-like pieces use Eno's method instead: a few notes on loops of prime lengths that drift in and out of phase.
+- **A critic.** Sixteen realisations of each seed are scored for streams, masking, figure against ground, timbral belonging, brightness, information rate against pace (Berlyne's inverted U), groove, mud and fidelity to the genome. The best one plays, and the same seed always gives the same piece.
+- **Form on a 1/f tide.** In Listen mode an arranger brings parts in and out, phrase by phrase, following pink noise: small changes often, big ones rarely, the way natural sound and most music move.
+
+**The instrument underneath:**
 
 - **28 synthesised layers.** Pads, strings, choir, drone, bass, piano, kalimba, bells, marimba, flute, singing bowls, arpeggiator, Euclidean percussion, rain, ocean, wind, fire, birds, crickets, thunder, binaural beats and noise. Every layer is built from oscillators, filtered noise and envelopes.
 - **Harmony.** Fifteen scales, chord loops with voice leading, and *song chords*: 100 real-world progressions written per scale, played as a verse and chorus.
@@ -61,7 +74,11 @@ js/conductor.js       the running arranger (sections, fills, risers, intervals)
 js/theory.js          scales, chords, voice leading, song form
 js/progressions.js    the 100 song progressions
 js/composer.js        Euclidean rhythms, motifs, arpeggios
-js/scenes.js          moods, palettes, the scene generator, share links
+js/genome.js          the 21 qualities and the named starting places
+js/generator.js       genome → scene: casting, rhythm, harmony, the critic
+js/sounds.js          the designed sound presets
+js/tide.js            the listening arranger
+js/scenes.js          scenes, journeys, rerolls, share links
 js/params.js          the global parameter schema
 js/layers/*.js        every instrument and its parameters
 js/touch.js           the screen as an instrument

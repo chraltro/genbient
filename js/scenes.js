@@ -1,10 +1,12 @@
 // Procedural scene generation. A scene is the complete state of the
 // instrument; everything in it can be generated, rerolled per section,
 // mutated over time, and shared as a link.
-import { LAYERS, LAYER_BY_ID, TONAL_ANCHORS } from './layers/index.js';
+import { LAYERS } from './layers/index.js';
 import { MODES } from './theory.js';
-import { GLOBAL_PARAMS, GLOBAL_SECTIONS, defaults, fill, randomize, pack, unpack } from './params.js';
-import { seeded, clamp, lerp } from './util.js';
+import { GLOBAL_PARAMS, GLOBAL_SECTIONS, defaults, fill, pack, unpack } from './params.js';
+import { seeded, clamp } from './util.js';
+import { ANCHORS, ANCHOR_BY_ID, nudge } from './genome.js';
+import { compose, packGenome, unpackGenome } from './generator.js';
 
 // Each palette is ink on a ground, plus one accent used sparingly.
 export const PALETTES = {
@@ -25,35 +27,8 @@ export const PALETTES = {
 const PALETTE_ALIAS = { abyss: 'tide', aurora: 'jade', forest: 'moss', glacier: 'frost', lotus: 'plum', cosmos: 'plum', mist: 'fog' };
 export const paletteId = (id) => (PALETTES[id] ? id : PALETTES[PALETTE_ALIAS[id]] ? PALETTE_ALIAS[id] : 'slate');
 
-export const MOODS = [
-  { id: 'oceanic', name: 'Oceanic', palettes: ['tide', 'night', 'frost', 'jade'], modes: ['dorian', 'aeolian', 'lydian', 'majpent'], energy: [0.05, 0.4],
-    likes: { ocean: 3, drone: 2, pad: 3, shimmer: 2, bells: 1.5, wind: 1, choir: 1, strings: 1, bass: 1, marimba: 0.8 } },
-  { id: 'sylvan', name: 'Forest', palettes: ['moss', 'fog', 'jade', 'paper'], modes: ['majpent', 'ionian', 'mixolydian', 'yo', 'dorian'], energy: [0.15, 0.55],
-    likes: { birds: 3, stream: 3, keys: 2.5, pad: 2, flute: 2, wind: 1, rain: 1, marimba: 1.5, wood: 1.2, handdrum: 1 } },
-  { id: 'sacred', name: 'Sacred', palettes: ['sand', 'ember', 'plum'], modes: ['insen', 'hirajoshi', 'hijaz', 'phrygian', 'dorian'], energy: [0, 0.35],
-    likes: { bowls: 3, drone: 3, choir: 2.5, flute: 1.5, bells: 1.5, fire: 1, pulse: 1, strings: 1 } },
-  { id: 'celestial', name: 'Celestial', palettes: ['plum', 'jade', 'night', 'plum'], modes: ['lydian', 'ionian', 'majpent', 'lydian'], energy: [0, 0.45],
-    likes: { shimmer: 3, pad: 3, choir: 2, drone: 2, bells: 2, strings: 2, arp: 1.5, binaural: 1 } },
-  { id: 'stormy', name: 'Storm', palettes: ['fog', 'night', 'tide'], modes: ['aeolian', 'phrygian', 'dorian', 'minpent', 'harmonic'], energy: [0.1, 0.5],
-    likes: { rain: 3, thunder: 2.5, wind: 2, drone: 2, pad: 2, piano: 1.5, strings: 1.5, bass: 1 } },
-  { id: 'nocturne', name: 'Nocturne', palettes: ['night', 'dusk', 'plum'], modes: ['aeolian', 'dorian', 'minpent', 'hirajoshi', 'melodic'], energy: [0.1, 0.5],
-    likes: { night: 3, piano: 2.5, keys: 1.5, pad: 2, flute: 2, drone: 1.5, stream: 1, bass: 1 } },
-  { id: 'hearth', name: 'Hearth', palettes: ['ember', 'slate', 'sand', 'paper'], modes: ['mixolydian', 'dorian', 'majpent', 'ionian'], energy: [0.1, 0.5],
-    likes: { fire: 3, piano: 2, pad: 2, keys: 2, drone: 1.5, rain: 1.5, pulse: 1, strings: 1 } },
-  { id: 'downtempo', name: 'Downtempo', palettes: ['dusk', 'plum', 'rose', 'jade', 'night'], modes: ['dorian', 'aeolian', 'minpent', 'mixolydian', 'melodic'], energy: [0.55, 0.9],
-    likes: { kick: 3, shaker: 2.5, bass: 3, pad: 2.5, arp: 2, piano: 2, keys: 1.5, marimba: 1.5, handdrum: 1.2, wood: 1, rain: 1 } },
-  { id: 'ritual', name: 'Ritual', palettes: ['ember', 'sand', 'moss'], modes: ['phrygian', 'hijaz', 'insen', 'minpent', 'dorian'], energy: [0.45, 0.85],
-    likes: { handdrum: 3, drone: 3, wood: 2, flute: 2, bowls: 1.5, fire: 1.5, shaker: 1.5, choir: 1, pulse: 1 } },
-  { id: 'lofi', name: 'Lo-fi', palettes: ['rose', 'paper', 'fog', 'sand'], modes: ['dorian', 'ionian', 'mixolydian', 'aeolian'], energy: [0.45, 0.8],
-    likes: { piano: 3, kick: 2.5, shaker: 2, bass: 2.5, rain: 2, keys: 1.5, pad: 1.5, wood: 1 }, g: { warmth: [0.4, 0.8], wow: [0.25, 0.6], bright: [0.3, 0.55], swing: [0.2, 0.45], complexity: [0.5, 0.95] } },
-  { id: 'glacial', name: 'Glacial', palettes: ['frost', 'fog', 'tide', 'slate'], modes: ['lydian', 'majpent', 'ionian', 'yo'], energy: [0, 0.3],
-    likes: { strings: 2.5, shimmer: 2.5, pad: 2, wind: 2, bells: 1.5, keys: 1.5, drone: 1.5, noise: 0.8 } },
-  { id: 'run', name: 'Running', palettes: ['ember', 'slate', 'paper', 'dusk'], modes: ['dorian', 'aeolian', 'minpent', 'mixolydian', 'ionian'], energy: [0.85, 0.95],
-    likes: { kick: 4, shaker: 3, bass: 3, arp: 2.5, pad: 2, handdrum: 1.5, strings: 1.2, keys: 1, wood: 0.8, rain: 0.5 },
-    g: { meter: '4/4', swing: [0, 0.04], humanize: [0.03, 0.12], evolve: [0.1, 0.25], chordBars: 2, rests: [0.25, 0.5], density: [0.35, 0.55] } },
-  { id: 'sleep', name: 'Sleep', palettes: ['night', 'tide', 'fog'], modes: ['aeolian', 'dorian', 'majpent', 'lydian'], energy: [0, 0.15],
-    likes: { drone: 3, pad: 3, ocean: 2, noise: 2, binaural: 2, rain: 1.5, strings: 1, bowls: 1.5, piano: 1, shimmer: 1.2 }, g: { bright: [0.15, 0.4], bpm: [44, 60], density: [0.1, 0.35], chordBars: [4, 8] } },
-];
+// Moods are named places in the genome (js/genome.js), good places to start.
+export const MOODS = ANCHORS.map((a) => ({ id: a.id, name: a.name, blurb: a.blurb, hidden: !!a.hidden }));
 export const MOOD_BY_ID = Object.fromEntries(MOODS.map((m) => [m.id, m]));
 
 const ADJ = ['Silent', 'Hollow', 'Amber', 'Silver', 'Distant', 'Velvet', 'Tidal', 'Drifting', 'Luminous', 'Quiet',
@@ -79,78 +54,11 @@ const makeTag = (r) => `${r.pick(TAG_A)} ${r.pick(TAG_B)}`;
 
 const offLayer = (def) => ({ on: false, p: defaults(def.schema) });
 
-function layerParams(def, r, vol) {
-  const p = randomize(def.schema, r, defaults(def.schema));
-  p.vol = vol;
-  return p;
-}
-
-/*
- * Which layers a scene gets, by recipe rather than by dice:
- *   one harmonic bed (a second only in slow, still scenes, and only one that complements it)
- *   with the beat on, always a real kit, sized by energy, plus bass from medium energy up
- *   one melody (none in the stillest scenes; a second only when there's energy, and then they trade phrases)
- *   one bed of weather or noise the mood loves, sometimes its two signature textures
- * The mood's likes choose within each group.
+/* ─────────────────────────── the composer ───────────────────────────
+ * Scenes come from generator.js: a point in the musical genome, realised by
+ * principles and chosen by a critic. Moods are named places in that space.
  */
-function chooseLayers(r, mood, energy, rhythmMode) {
-  const likes = mood.likes;
-  const chosen = new Set();
-  const w = (id) => likes[id] || 0.3;
-  const choose = (ids, weight = w) => {
-    const pool = ids.filter((id) => !chosen.has(id));
-    if (!pool.length) return null;
-    const id = r.weighted(pool, pool.map(weight));
-    chosen.add(id);
-    return id;
-  };
-
-  const bed = choose(TONAL_ANCHORS, (id) => w(id) + 0.2);
-  if (energy < 0.3 && r.chance(0.35)) choose(['drone', 'shimmer'].filter((id) => id !== bed));
-
-  if (rhythmMode !== false) {
-    if (energy < 0.3) {
-      // a soft heartbeat of a beat
-      choose(['handdrum', 'pulse', 'wood'], (id) => w(id) + (id === 'handdrum' ? 1 : 0));
-      if (r.chance(0.5)) chosen.add('shaker');
-    } else if (energy < 0.6) {
-      choose(['kick', 'handdrum'], (id) => w(id) + 1);
-      choose(['shaker', 'wood'], (id) => w(id) + 1);
-    } else {
-      chosen.add('kick');
-      chosen.add('shaker');
-      choose(['handdrum', 'wood'], (id) => w(id) + 0.5);
-    }
-    if (energy >= 0.4) chosen.add('bass');
-  }
-
-  const melody = LAYERS.filter((l) => l.group === 'melody').map((l) => l.id);
-  if (energy >= 0.1 || r.chance(0.6)) choose(melody);
-  if (energy > 0.5 && r.chance(0.35)) choose(melody);
-
-  const texture = LAYERS.filter((l) => l.group === 'nature' || l.group === 'mind').map((l) => l.id);
-  const loved = texture.filter((id) => w(id) >= 2).sort((a, b) => w(b) - w(a));
-  if (loved.length >= 2 && r.chance(0.35)) { chosen.add(loved[0]); chosen.add(loved[1]); }
-  else if (r.chance(0.85)) choose(texture, (id) => w(id) * (id === 'binaural' ? 0.4 : 1));
-
-  // never just one lonely layer
-  if (chosen.size < 2) choose(texture, (id) => w(id) * (id === 'binaural' ? 0.2 : 1));
-  // seven at most: past that the mix turns to soup
-  const order = [...[...texture].sort((a, b) => w(a) - w(b)), 'wood', 'handdrum', 'pulse'];
-  for (const id of order) if (chosen.size > 7 && chosen.has(id)) chosen.delete(id);
-  return chosen;
-}
-
-function applyMoodBias(g, mood, r, energy) {
-  g.bpm = Math.round(clamp(lerp(50, 104, energy) + r.float(-8, 8), 40, 190));
-  g.density = clamp(lerp(0.25, 0.75, energy) + r.float(-0.12, 0.12), 0, 1);
-  if (energy < 0.3) g.swing = Math.min(g.swing, 0.15);
-  for (const [k, v] of Object.entries(mood.g || {})) {
-    g[k] = Array.isArray(v) ? (Number.isInteger(v[0]) && v[0] > 1 ? r.int(v[0], v[1]) : r.float(v[0], v[1])) : v;
-  }
-  if (typeof g.chordBars === 'number' && ![1, 2, 4, 8].includes(g.chordBars)) g.chordBars = g.chordBars > 5 ? 8 : 4;
-  g.touchMode = 'both';
-}
+const TOUCH_FOR = { piano: 'pluck', bells: 'bell', keys: 'bell', marimba: 'pluck', flute: 'voice', bowls: 'glass', arp: 'glass' };
 
 // Running needs a beat you can step to: kick on every beat, hats on the
 // off-beats, a pulsing bass, all at the chosen cadence and never skipping.
@@ -204,46 +112,35 @@ export function unrun(state) {
   return next;
 }
 
+/*
+ * opts: mood (an anchor to start near), energy, rhythm (true, false or
+ * undefined to let the piece decide), shape (dimensions to hold), genome (a
+ * whole genome to realise), bpm (for running).
+ */
 export function generateScene(seed, opts = {}) {
   const r = seeded(seed);
-  // Running is opt-in: it never turns up by chance in an ambient session.
-  const mood = MOOD_BY_ID[opts.mood] || r.pick(MOODS.filter((m) => m.id !== 'run'));
-  const energy = opts.energy ?? r.float(...mood.energy);
-  const g = randomize(GLOBAL_PARAMS, r, defaults(GLOBAL_PARAMS));
-  applyMoodBias(g, mood, r, energy);
-
-  const chosen = chooseLayers(r, mood, energy, opts.rhythm);
-  g.beat = opts.rhythm !== false;
-  const layers = {};
-  for (const def of LAYERS) {
-    if (!chosen.has(def.id)) { layers[def.id] = offLayer(def); continue; }
-    const like = mood.likes[def.id] || 0.5;
-    let vol = clamp(r.float(0.35, 0.6) + like * 0.05, 0.2, 0.85);
-    if (def.group === 'rhythm') vol *= lerp(0.7, 1.05, energy);
-    if (def.id === 'binaural') vol = r.float(0.25, 0.45);
-    layers[def.id] = { on: true, p: layerParams(def, r, vol) };
-  }
-  // a little more drive in rhythmic moods
-  if (layers.kick.on && energy > 0.6) layers.kick.p.hits = r.pick([4, 4, 3, 2]);
-  // two melodies take turns instead of talking over each other
-  if (LAYERS.filter((d) => d.group === 'melody' && layers[d.id].on).length > 1) g.callResponse = true;
-  if (layers.bass.on) layers.bass.p.oct = 0;
-  if (mood.id === 'run') makeRunnable(g, layers, r, opts.bpm);
-
+  const mood = opts.mood === 'run' ? 'run' : opts.mood;
+  const c = compose(seed, { mood, energy: opts.energy, rhythm: mood === 'run' ? true : opts.rhythm, shape: opts.shape, genome: opts.genome });
+  const g = c.g;
+  const lead = LAYERS.find((d) => c.roles[d.id] === 'lead');
+  if (lead && TOUCH_FOR[lead.id]) g.touchVoice = TOUCH_FOR[lead.id];
+  if (mood === 'run') makeRunnable(g, c.layers, r, opts.bpm);
   return {
     v: 2,
     name: makeName(r),
     tagline: makeTag(r),
-    mood: mood.id,
-    energy,
+    mood: mood === 'run' ? 'run' : c.mood,
+    energy: c.energy,
     seed,
-    palette: r.pick(mood.palettes),
-    root: r.int(0, 11),
-    mode: r.pick(mood.modes.filter((m) => MODES[m])),
-    a4: r.chance(0.25) ? 432 : 440,
-    just: r.chance(0.2),
+    palette: c.palette,
+    root: c.root,
+    mode: c.mode,
+    a4: c.a4,
+    just: c.just,
     g,
-    layers,
+    layers: c.layers,
+    roles: c.roles,
+    genome: c.genome,
   };
 }
 
@@ -261,7 +158,8 @@ export const SECTIONS = [
 const secIds = (id) => (GLOBAL_SECTIONS.find((s) => s.id === id)?.params || []).map((p) => p.id);
 
 export function rerollSection(state, section, seed, opts = {}) {
-  const fresh = generateScene(seed, { mood: state.mood, energy: state.energy, bpm: state.g.bpm, rhythm: state.g.beat === false ? false : undefined, ...opts });
+  // the same piece in character (its genome), realised afresh
+  const fresh = generateScene(seed, { mood: state.mood, genome: state.genome, energy: state.energy, bpm: state.g.bpm, rhythm: !!state.g.beat, ...opts });
   const next = structuredClone(state);
   const copyG = (ids) => ids.forEach((id) => { next.g[id] = fresh.g[id]; });
   const copyGroup = (groups) => {
@@ -295,44 +193,39 @@ export function rerollSection(state, section, seed, opts = {}) {
       next.palette = fresh.palette === state.palette ? seeded(seed + 1).pick(Object.keys(PALETTES)) : fresh.palette;
       return next;
   }
-  if (!LAYERS.some((d) => next.layers[d.id].on)) next.layers.pad = fresh.layers.pad.on ? fresh.layers.pad : { on: true, p: layerParams(LAYER_BY_ID.pad, seeded(seed), 0.5) };
+  if (!LAYERS.some((d) => next.layers[d.id].on)) {
+    const bed = LAYERS.find((d) => fresh.layers[d.id].on && d.group === 'harmony') || LAYERS.find((d) => fresh.layers[d.id].on);
+    next.layers[bed.id] = fresh.layers[bed.id];
+  }
+  next.roles = { ...(state.roles || {}) };
+  for (const def of LAYERS) {
+    if (!next.layers[def.id].on) delete next.roles[def.id];
+    else if (next.layers[def.id] === fresh.layers[def.id] && fresh.roles[def.id]) next.roles[def.id] = fresh.roles[def.id];
+  }
   next.name = fresh.name;
   next.tagline = fresh.tagline;
   return next;
 }
 
-// Journey mode: a gentle step away from the current scene, not a jump.
-export function mutateScene(s, seed) {
+// Journey mode: a step through the genome to a neighbouring piece, in a
+// related key, so the drift feels like an album moving on rather than a
+// channel changing. A chosen mood keeps pulling the walk back toward it.
+export function mutateScene(s, seed, shape = {}) {
   const r = seeded(seed);
-  const next = structuredClone(s);
-  const on = LAYERS.filter((l) => next.layers[l.id].on).map((l) => l.id);
-  const off = LAYERS.filter((l) => !next.layers[l.id].on && l.id !== 'binaural' && !(l.group === 'rhythm' && next.g.beat === false)).map((l) => l.id);
-  if (on.length > 2 && r.chance(0.7)) next.layers[r.pick(on)].on = false;
-  if (off.length && (on.length < 5 || r.chance(0.5))) {
-    const id = r.pick(off);
-    next.layers[id] = { on: true, p: layerParams(LAYER_BY_ID[id], r, r.float(0.3, 0.6)) };
+  let G = s.genome ? nudge(r, s.genome, 0.09) : null;
+  const home = ANCHOR_BY_ID[s.mood];
+  if (G && home) for (const [k, v] of Object.entries(home.at)) G[k] = G[k] + (v - G[k]) * 0.25;
+  if (G) Object.assign(G, shape); // what the listener holds, stays
+  if (G && s.g.beat) G.pulse = Math.max(G.pulse, 0.55);
+  const next = generateScene(seed, { mood: s.mood, genome: G || undefined, rhythm: !!s.g.beat, bpm: s.g.bpm });
+  if (!G) next.mood = s.mood;
+  next.root = (s.root + r.pick([0, 5, 7, 7, 5, 2, 10])) % 12;
+  if (r.chance(0.5)) next.mode = s.mode;
+  if (r.chance(0.6)) next.palette = s.palette;
+  if (s.mood === 'run') {
+    next.g.bpm = s.g.bpm;
+    for (const id of ['kick', 'shaker']) next.layers[id] = structuredClone(s.layers[id]);
   }
-  for (const id of on) {
-    const def = LAYER_BY_ID[id];
-    const p = next.layers[id].p;
-    for (const prm of def.schema) {
-      if (prm.type !== 'range' || prm.keep || !r.chance(0.3)) continue;
-      const span = prm.max - prm.min;
-      let v = clamp(p[prm.id] + r.float(-0.15, 0.15) * span, prm.min, prm.max);
-      if (prm.step >= 1) v = Math.round(v);
-      p[prm.id] = v;
-    }
-  }
-  if (!TONAL_ANCHORS.some((id) => next.layers[id].on)) next.layers.pad = { on: true, p: layerParams(LAYER_BY_ID.pad, r, 0.5) };
-  if (r.chance(0.5)) next.root = (next.root + r.pick([5, 7])) % 12;
-  if (r.chance(0.25)) next.mode = r.pick(Object.keys(MODES).filter((m) => m !== 'whole'));
-  if (r.chance(0.5)) next.palette = r.pick(Object.keys(PALETTES));
-  next.g.bright = clamp(next.g.bright + r.float(-0.1, 0.1), 0.2, 0.85);
-  // a running scene keeps its cadence and its beat; everything else may drift
-  if (s.mood !== 'run') next.g.bpm = Math.round(clamp(next.g.bpm + r.float(-6, 6), 40, 200));
-  else for (const id of ['kick', 'shaker']) next.layers[id] = structuredClone(s.layers[id]);
-  next.name = makeName(r);
-  next.tagline = makeTag(r);
   return next;
 }
 
@@ -382,10 +275,14 @@ export function normalize(s) {
     just: !!s?.just,
     g: fill(s?.g, GLOBAL_PARAMS),
     layers: {},
+    roles: {},
+    genome: s?.genome && typeof s.genome === 'object' ? unpackGenome(packGenome(s.genome)) : undefined,
   };
   for (const def of LAYERS) {
     const l = s?.layers?.[def.id];
     out.layers[def.id] = { on: !!l?.on, p: fill(l?.p, def.schema) };
+    const role = s?.roles?.[def.id];
+    if (out.layers[def.id].on && typeof role === 'string' && /^[a-z0-9]{1,10}$/.test(role)) out.roles[def.id] = role;
   }
   return out;
 }
@@ -395,10 +292,16 @@ const b64 = {
   dec: (str) => new TextDecoder().decode(Uint8Array.from(atob(str.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0))),
 };
 
+// Roles travel in share links as one digit per layer.
+const ROLES = [null, 'bed', 'bed2', 'halo', 'lead', 'answer', 'bass', 'texture', 'texture2', 'kit'];
+const ROLE_CODE = Object.fromEntries(ROLES.map((r, i) => [r, i]).filter(([r]) => r));
+
 function sceneData(s) {
   return {
     v: 2, n: s.name, t: s.tagline, mo: s.mood, e: Math.round(s.energy * 100), p: s.palette, r: s.root, m: s.mode,
     pm: s.prevMood, sd: s.seed, pr: s.preRun, k: s.kids,
+    gn: s.genome ? packGenome(s.genome) : undefined,
+    ro: s.roles && Object.keys(s.roles).length ? LAYERS.map((d) => ROLE_CODE[s.roles[d.id]] ?? 0).join('') : undefined,
     a: s.a4, j: s.just ? 1 : 0,
     g: pack(s.g, GLOBAL_PARAMS),
     l: LAYERS.map((d, i) => (s.layers[d.id].on ? [i, ...pack(s.layers[d.id].p, d.schema)] : null)).filter(Boolean),
@@ -459,6 +362,8 @@ function fromData(d) {
     return normalize({
       name: d.n, tagline: d.t, mood: d.mo, energy: (d.e ?? 30) / 100, palette: d.p, root: d.r, mode: d.m,
       prevMood: d.pm, seed: d.sd, preRun: d.pr, kids: d.k,
+      genome: unpackGenome(d.gn) || undefined,
+      roles: typeof d.ro === 'string' ? Object.fromEntries(LAYERS.map((def, i) => [def.id, ROLES[+d.ro[i]]]).filter(([, v]) => v)) : undefined,
       a4: d.a, just: d.j, g: unpack(d.g, GLOBAL_PARAMS), layers,
     });
   } catch {

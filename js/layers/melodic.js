@@ -5,7 +5,7 @@ import { Layer, Melodic, common, OCT, STYLE, DENSITY } from './base.js';
 import { euclid, accent, arpSequence } from '../composer.js';
 
 const sec = (v) => `${v.toFixed(1)} s`;
-const STYLES = { motif: 'Motif', arp: 'Arpeggio', walk: 'Wander', sparse: 'Sparse', chords: 'Chords', euclid: 'Rhythm' };
+const STYLES = { motif: 'Motif', arp: 'Arpeggio', walk: 'Wander', sparse: 'Sparse', chords: 'Chords', euclid: 'Rhythm', loops: 'Loops' };
 const styles = (...ids) => ids.map((id) => [id, STYLES[id]]);
 const ARP_SHAPES = [['up', 'Up'], ['down', 'Down'], ['updown', 'Up & down'], ['converge', 'Converge'], ['pinky', 'Pinky'], ['thumb', 'Thumb'], ['random', 'Random']];
 const RATES = [[1, '1/16'], [2, '1/8'], [4, '1/4'], [8, '1/2']];
@@ -59,7 +59,7 @@ export class Kalimba extends Melodic {
   static schema = [
     ...common({ vol: 0.55, tone: 0.9, rev: 0.65, dly: 0.4 }),
     OCT(0),
-    STYLE(styles('motif', 'arp', 'walk', 'sparse'), 'motif'),
+    STYLE(styles('motif', 'arp', 'walk', 'sparse', 'loops'), 'motif'),
     DENSITY(0.5),
     R('decay', 'Decay', 0.5, 5, 2.6, { fmt: sec }),
     R('tine', 'Tine', 0, 1, 0.45, { hint: 'metallic attack' }),
@@ -93,7 +93,7 @@ export class Piano extends Melodic {
   static schema = [
     ...common({ vol: 0.55, tone: 0.8, rev: 0.7, dly: 0.2 }),
     OCT(0),
-    STYLE(styles('chords', 'motif', 'walk', 'sparse', 'arp'), 'chords'),
+    STYLE(styles('chords', 'motif', 'walk', 'sparse', 'arp', 'loops'), 'chords'),
     DENSITY(0.45),
     R('decay', 'Sustain', 1, 10, 4.5, { fmt: sec }),
     R('felt', 'Felt', 0, 1, 0.6, { hint: 'soft ↔ bright hammer' }),
@@ -145,7 +145,7 @@ export class Bells extends Melodic {
   static schema = [
     ...common({ vol: 0.5, tone: 0.95, rev: 0.9, dly: 0.55 }),
     OCT(0),
-    STYLE(styles('sparse', 'motif', 'walk', 'arp'), 'sparse'),
+    STYLE(styles('sparse', 'motif', 'walk', 'arp', 'loops'), 'sparse'),
     DENSITY(0.4),
     C('metal', 'Metal', Object.keys(METALS).map((k) => [k, k[0].toUpperCase() + k.slice(1)]), 'bell'),
     R('bright', 'Brightness', 0, 1, 0.5),
@@ -178,7 +178,7 @@ export class Marimba extends Melodic {
   static schema = [
     ...common({ vol: 0.55, tone: 0.85, rev: 0.45, dly: 0.25 }),
     OCT(0),
-    STYLE(styles('euclid', 'motif', 'arp', 'walk'), 'euclid'),
+    STYLE(styles('euclid', 'motif', 'arp', 'walk', 'loops'), 'euclid'),
     DENSITY(0.55),
     R('hits', 'Rhythm hits', 1, 12, 5, { step: 1, fmt: (v) => `${v}`, gen: [3, 7] }),
     R('rotate', 'Rhythm rotation', 0, 15, 0, { step: 1, fmt: (v) => `${v}` }),

@@ -2,7 +2,7 @@
 //   voices → bus (level) → filter → pan → mix, with reverb and echo sends.
 import { clamp, lerp, rand, pick, chance, glide, makePanner, gain, filter } from '../util.js';
 import { R, C, defaults } from '../params.js';
-import { makeMotif, vary, arpSequence, euclid, accent } from '../composer.js';
+import { makeMotif, vary, arpSequence, euclid, accent, makeLoop, nudgeLoop } from '../composer.js';
 
 const hz = (v) => { const f = 90 * Math.pow(2, v * 7.8); return f >= 1000 ? `${(f / 1000).toFixed(1)}k Hz` : `${Math.round(f)} Hz`; };
 const panFmt = (v) => (Math.abs(v) < 0.03 ? 'centre' : `${Math.round(Math.abs(v) * 100)}% ${v < 0 ? 'L' : 'R'}`);
@@ -30,6 +30,7 @@ export class Layer {
     this.p = defaults(def.schema);
     this.on = false;
     this.running = false;
+    this.presence = 1; // the arranger's hand on the fader, apart from the listener's
 
     const ctx = this.ctx;
     this.bus = gain(ctx, 0);
@@ -47,7 +48,19 @@ export class Layer {
   get now() { return this.ctx.currentTime; }
   get h() { return this.e.harmony; }
   get g() { return this.e.g; }
-  get level() { return this.def.gain * this.p.vol * this.p.vol; }
+  get level() { return this.def.gain * this.p.vol * this.p.vol * this.presence; }
+  // Benched: faded out by the arranger, so it plays nothing until it returns.
+  get benched() { return this.presence === 0 && this.now > (this.restAt ?? 0); }
+
+  // The arranger brings a part in or takes it out, without touching the scene.
+  setPresence(v, fade = 8, at = this.now) {
+    if (v === this.presence) return;
+    this.presence = v;
+    const start = Math.max(at, this.now);
+    if (v === 0) this.restAt = start + fade;
+    else if (this.benched || this.restAt > this.now) { this.nextT = null; this.restAt = 0; }
+    if (this.on) glide(this.bus.gain, this.level, start, fade / 3);
+  }
   toneHz() { return 90 * Math.pow(2, (this.p.tone ?? 0.9) * 7.8); }
   // Layer density blended with the global density control.
   get dens() { return clamp((this.p.density ?? 0.5) * (0.35 + this.g.density * 1.3), 0, 1); }
@@ -176,6 +189,7 @@ export function noiseSrc(layer, type, t) {
  *   walk    – a free melodic random walk on strong beats
  *   sparse  – occasional single chord tones
  *   chords  – full chord strikes (pianos)
+ *   loops   – a few notes on a long prime-length loop, drifting against others
  * Subclasses implement play(t, freq, velocity, seconds).
  */
 export class Melodic extends Layer {
@@ -185,6 +199,7 @@ export class Melodic extends Layer {
     this.resting = false;
     this.walkDeg = 0;
     this.arpI = 0;
+    this.loop = null;
   }
 
   onStep(info) {
@@ -193,6 +208,7 @@ export class Melodic extends Layer {
       case 'walk': return this.walkStep(info);
       case 'sparse': return this.sparseStep(info);
       case 'chords': return this.chordStep(info);
+      case 'loops': return this.loopStep(info);
       default: return this.motifStep(info);
     }
   }
@@ -246,6 +262,31 @@ export class Melodic extends Layer {
     const hits = this.index && this.index.get(pos);
     if (!hits) return;
     for (const n of hits) this.playKey(info, n.d, n.v, n.len * info.dur * (this.p.legato ?? 1), n.snap);
+  }
+
+  /*
+   * Loops: the same few notes, forever, on a length no other voice shares.
+   * Each time round there's a small chance of a small change, fewer the
+   * more the piece repeats, and now and then a turn is left out to breathe.
+   */
+  loopStep(info) {
+    if (!this.loop) {
+      const taken = Object.values(this.e.layers).filter((l) => l !== this && l.on && l.loop).map((l) => l.loop.len);
+      this.loop = makeLoop({ stepSecs: info.dur, density: this.dens, taken });
+      this.loopAt = new Map(this.loop.notes.map((n) => [n.s, n]));
+      this.loopRest = false;
+    }
+    const pos = info.step % this.loop.len;
+    if (pos === 0) {
+      if (chance((1 - this.g.repetition) * 0.6)) {
+        this.loop = nudgeLoop(this.loop);
+        this.loopAt = new Map(this.loop.notes.map((n) => [n.s, n]));
+      }
+      this.loopRest = chance(this.g.rests * 0.2);
+    }
+    if (this.loopRest) return;
+    const n = this.loopAt.get(pos);
+    if (n) this.playKey(info, n.d, n.v, n.len * info.dur * (this.p.legato ?? 1), n.snap);
   }
 
   // Call & response: the melodies playing motifs take alternate sides, so two
