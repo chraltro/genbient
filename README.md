@@ -10,7 +10,9 @@ A generative ambient instrument for the phone. Every scene is built from a seed,
   - *Listen*: "With a beat and song chords. Oceanic mood, staying put."
   - *Run*: the cadence dial (− / + and "tap your steps"), then "Two on, two easy, for 30 minutes. Song chords, psy bass." The line under it shows the section, song part, clock, skip and more.
   - *Sleep*: "Stop in 30 min, fading over five minutes, winding down. Rain, breathing calm."
-- **Rec** and **Share** sit top right. **‹ Back** and **Save** sit under the scene name.
+  - *Leonora*: a simpler corner for a child. Pick a world (Ocean, Forest, Rain, Stars, Night) and what your finger plays (bells, piano, singing, glass, soft). Everything is in a happy five-note scale with song chords, so whatever she plays fits, and the volume never goes past 60%. It also has *Play with the whole screen*, *Surprise!* and a 15-minute bedtime.
+- **Full screen play-along** (the corner icon, top right): everything but the lines disappears and the whole screen is the instrument. Taps and keys can't pause or change settings. Hold the ring in the corner for a moment to leave.
+- **Rec** and the full-screen icon sit top right. **‹ Back**, **Save** and **Share** sit under the scene name.
 - The dock holds the deep editing: **Scenes** (saved, recent, mood, energy, regenerate one part, starting points), **Layers**, **Random**, **Music**, **Sound**.
 
 ## What's in it

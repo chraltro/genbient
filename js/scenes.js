@@ -348,6 +348,7 @@ export function normalize(s) {
     tagline: String(s?.tagline || '').slice(0, 80),
     mood: MOOD_BY_ID[s?.mood] ? s.mood : 'oceanic',
     prevMood: MOOD_BY_ID[s?.prevMood] ? s.prevMood : undefined,
+    kids: typeof s?.kids === 'string' ? s.kids.slice(0, 12) : undefined,
     preRun: s?.preRun && typeof s.preRun === 'object'
       ? Object.fromEntries(['revSize', 'revMix', 'revPre', 'bright', 'drift', 'pump'].filter((k) => Number.isFinite(s.preRun[k])).map((k) => [k, clamp(s.preRun[k], 0, 1)]))
       : undefined,
@@ -376,7 +377,7 @@ const b64 = {
 export function encodeScene(s) {
   const data = {
     v: 2, n: s.name, t: s.tagline, mo: s.mood, e: Math.round(s.energy * 100), p: s.palette, r: s.root, m: s.mode,
-    pm: s.prevMood, sd: s.seed, pr: s.preRun,
+    pm: s.prevMood, sd: s.seed, pr: s.preRun, k: s.kids,
     a: s.a4, j: s.just ? 1 : 0,
     g: pack(s.g, GLOBAL_PARAMS),
     l: LAYERS.map((d, i) => (s.layers[d.id].on ? [i, ...pack(s.layers[d.id].p, d.schema)] : null)).filter(Boolean),
@@ -396,7 +397,7 @@ export function decodeScene(str) {
     }
     return normalize({
       name: d.n, tagline: d.t, mood: d.mo, energy: (d.e ?? 30) / 100, palette: d.p, root: d.r, mode: d.m,
-      prevMood: d.pm, seed: d.sd, preRun: d.pr,
+      prevMood: d.pm, seed: d.sd, preRun: d.pr, kids: d.k,
       a4: d.a, just: d.j, g: unpack(d.g, GLOBAL_PARAMS), layers,
     });
   } catch {

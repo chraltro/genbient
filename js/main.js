@@ -9,7 +9,7 @@ import {
   PALETTES, MOODS, STARTS, SECTIONS, CADENCES, runify, unrun, generateScene, startScene, rerollSection, mutateScene,
   encodeScene, decodeScene, normalize,
 } from './scenes.js';
-import { seeded, clamp, lerp, glide } from './util.js';
+import { seeded, clamp, lerp, glide, pick } from './util.js';
 import { SONG_MODE, PROGRESSION_COUNT } from './progressions.js';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -35,6 +35,8 @@ prefs.vp = fill(prefs.vp, VISUAL_PARAMS);
 
 const engine = new Engine();
 engine.volume = prefs.volume;
+// Leonora's ears: her mode never goes above 60% of the phone's volume
+const vol = () => (prefs.mode === 'kids' && !running() ? Math.min(prefs.volume, 0.6) : prefs.volume);
 const visuals = new Visuals($('#bg'), engine);
 visuals.setParams(prefs.vp);
 visuals.setQuality(prefs.quality);
@@ -250,6 +252,7 @@ function setSong(v) {
 }
 
 function generate() {
+  if (mode() === 'kids') return kidsSurprise();
   if (running()) { newRunMusic(); toast('New music, same beat', undoAction()); return; }
   const mood = prefs.mood === 'any' ? undefined : prefs.mood;
   applyScene(songify(generateScene(newSeed(), { mood, energy: prefs.energy ?? undefined, rhythm: state.g.beat ? undefined : false })));
@@ -568,7 +571,7 @@ function cadenceControl(views = cadenceViews) {
 
 // The three ways people use this sit at the top; each one shows its own
 // few controls under the scene name. Deeper settings stay in the dock.
-const mode = () => (running() ? 'run' : prefs.mode === 'sleep' ? 'sleep' : 'listen');
+const mode = () => (running() ? 'run' : ['sleep', 'kids'].includes(prefs.mode) ? prefs.mode : 'listen');
 const panel = $('#panel');
 const panelViews = new Set();
 const refreshViews = () => { cadenceViews.forEach((f) => f()); panelViews.forEach((f) => f()); };
@@ -578,7 +581,9 @@ function setMode(m) {
   if (m === 'run') return setCadence(prefs.cadence);
   prefs.mode = m;
   if (running()) endRun();
-  else { renderModes(); renderPanel(); }
+  if (m === 'kids' && !state.kids) applyScene(kidsScene(prefs.kidWorld || 'ocean'), { fade: 4 });
+  renderModes();
+  renderPanel();
   if (m === 'sleep' && !sleepEnd) toast('Tap “Plays until you stop it” to set a timer');
   save();
 }
@@ -590,6 +595,7 @@ function renderModes() {
     b.setAttribute('aria-pressed', String(b.dataset.mode === m));
   });
   document.body.dataset.mode = m;
+  engine.setVolume(vol());
   if (typeof wakeBreath === 'function') wakeBreath();
 }
 document.querySelectorAll('.modes [data-mode]').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
@@ -642,6 +648,9 @@ function renderPanel() {
         now.textContent = info ? `${info.part} · ${info[info.part]}` : 'the verse starts with the next chord';
       });
     }
+  } else if (m === 'kids') {
+    renderKids();
+    return;
   } else if (m === 'run') {
     const top = h('div', 'run-top');
     const tap = h('button', 'text-btn tap-link', 'tap your steps');
@@ -679,7 +688,7 @@ function renderPanel() {
       choose('fade', [[1, 'a minute'], [5, 'five minutes'], [15, 'fifteen minutes']], prefs.sleepFade, (v) => {
         prefs.sleepFade = v;
         sleepFading = false;
-        engine.setVolume(prefs.volume);
+        engine.setVolume(vol());
         engine.scheduleSleep((sleepEnd - Date.now()) / 1000, fadeSecs());
         save();
       });
@@ -726,6 +735,132 @@ function setBass(v) {
   if (v === 'plain') return setGroove(false);
   state.layers.bass.p.bstyle = v;
   setGroove(true);
+}
+
+/* ─────────────────────────── full screen: play along ─────────────────────────── */
+
+// The whole screen becomes the instrument. Nothing on it pauses or changes
+// settings; the only way out is holding the ring in the corner.
+let immersive = false;
+let immersiveTimer;
+
+function enterImmersive() {
+  immersive = true;
+  closeSheet();
+  openTok = null;
+  clearTimeout(idleTimer);
+  document.body.classList.remove('idle');
+  document.body.classList.add('immersive');
+  try { document.documentElement.requestFullscreen?.({ navigationUI: 'hide' })?.catch(() => {}); } catch { /* not allowed here */ }
+  requestWake();
+  if (!engine.playing) togglePlay();
+  const hint = $('#immersive-hint');
+  hint.classList.add('show');
+  clearTimeout(immersiveTimer);
+  immersiveTimer = setTimeout(() => hint.classList.remove('show'), 4000);
+}
+
+function exitImmersive() {
+  if (!immersive) return;
+  immersive = false;
+  document.body.classList.remove('immersive');
+  $('#immersive-hint').classList.remove('show');
+  try { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); } catch { /* fine */ }
+  if (!prefs.wake) releaseWake();
+  bumpIdle();
+}
+
+$('#btn-full').addEventListener('click', enterImmersive);
+(() => {
+  const ring = $('#exit-hold');
+  let t = null;
+  const cancel = () => { clearTimeout(t); t = null; ring.classList.remove('holding'); };
+  ring.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    ring.classList.add('holding');
+    t = setTimeout(() => { cancel(); exitImmersive(); }, 1500);
+  });
+  ring.addEventListener('pointerup', () => {
+    if (t) {
+      // let go too soon: remind how to leave
+      const hint = $('#immersive-hint');
+      hint.classList.add('show');
+      clearTimeout(immersiveTimer);
+      immersiveTimer = setTimeout(() => hint.classList.remove('show'), 2500);
+    }
+    cancel();
+  });
+  ring.addEventListener('pointerleave', cancel);
+  ring.addEventListener('pointercancel', cancel);
+  ring.addEventListener('contextmenu', (e) => e.preventDefault());
+})();
+
+/* ─────────────────────────── Leonora ─────────────────────────── */
+
+// A simpler corner for a child: pick a world, pick what your finger plays,
+// play with the whole screen. Every world uses a five-note happy scale, so
+// whatever she plays fits, and the volume never goes past 60%.
+const WORLDS = {
+  ocean: { name: 'Ocean', mood: 'oceanic', bed: 'ocean', tune: 'bells', palette: 'tide', icon: '<path d="M3 10c2-3 4-3 6 0s4 3 6 0 4-3 6 0M3 15c2-3 4-3 6 0s4 3 6 0 4-3 6 0"/>' },
+  forest: { name: 'Forest', mood: 'sylvan', bed: 'birds', tune: 'marimba', palette: 'moss', icon: '<path d="M12 3l6 8h-4l4 6H6l4-6H6zM12 17v4"/>' },
+  rain: { name: 'Rain', mood: 'oceanic', bed: 'rain', tune: 'keys', palette: 'fog', icon: '<path d="M12 3c3 5 6 8 6 11a6 6 0 0 1-12 0c0-3 3-6 6-11z"/>' },
+  stars: { name: 'Stars', mood: 'celestial', bed: 'shimmer', tune: 'bells', palette: 'plum', icon: '<path d="M12 2.8c.7 5 3.3 7.8 8.8 9.2-5.5 1.4-8.1 4.2-8.8 9.2-.7-5-3.3-7.8-8.8-9.2 5.5-1.4 8.1-4.2 8.8-9.2Z"/>' },
+  night: { name: 'Night', mood: 'sleep', bed: 'night', tune: 'piano', palette: 'night', icon: '<path d="M19 14.5A7.5 7.5 0 1 1 9.5 5a6 6 0 0 0 9.5 9.5z"/>' },
+};
+const KID_VOICES = [['bell', 'Bells'], ['pluck', 'Piano'], ['voice', 'Singing'], ['glass', 'Glass'], ['warm', 'Soft']];
+
+function kidsScene(world) {
+  const w = WORLDS[world] || WORLDS.ocean;
+  const s = generateScene(newSeed(), { mood: w.mood, energy: 0.2, rhythm: false });
+  for (const id in s.layers) s.layers[id].on = false;
+  const on = (id, p) => { s.layers[id].on = true; Object.assign(s.layers[id].p, p); };
+  on('pad', { vol: 0.5, oct: 0 });
+  on(w.bed, { vol: 0.55 });
+  on(w.tune, { vol: 0.42, style: 'motif', density: 0.4, oct: 0 });
+  Object.assign(s, { name: `Leonora's ${w.name}`, tagline: '', palette: w.palette, mode: 'majpent', root: pick([0, 2, 5, 7]), kids: world });
+  Object.assign(s.g, { song: true, groove: false, bpm: 76, meter: '4/4', touchMode: 'both', touchNotes: 'scale', touchVoice: prefs.kidVoice || 'bell', touchLevel: 0.8, touchEcho: 0.35, touchRange: 2, touchSculpt: 0.35 });
+  return s;
+}
+
+function kidsWorld(world) {
+  prefs.kidWorld = world;
+  save();
+  applyScene(kidsScene(world), { fade: 3 });
+  if (!started || !engine.playing) togglePlay();
+}
+
+function kidsSurprise() {
+  const others = Object.keys(WORLDS).filter((k) => k !== state.kids);
+  kidsWorld(pick(others));
+}
+
+function renderKids() {
+  const k = h('div', 'kids');
+  const worlds = h('div', 'worlds');
+  for (const [id, w] of Object.entries(WORLDS)) {
+    const b = h('button', 'world' + (state.kids === id ? ' on' : ''), `<span class="world-ring"><svg viewBox="0 0 24 24">${w.icon}</svg></span>${w.name}`);
+    b.setAttribute('aria-pressed', String(state.kids === id));
+    b.addEventListener('click', () => kidsWorld(id));
+    worlds.append(b);
+  }
+  k.append(h('p', 'kids-q', 'Pick a world'), worlds);
+  k.append(h('p', 'kids-q', 'Your finger plays'));
+  k.append(chips(KID_VOICES.map(([value, label]) => ({ value, label })), state.g.touchVoice, (v) => {
+    prefs.kidVoice = v;
+    save();
+    setGlobal('touchVoice', v);
+  }, 'kid-voices'));
+  const row = h('div', 'kids-actions');
+  const big = h('button', 'primary', 'Play with the whole screen');
+  big.addEventListener('click', enterImmersive);
+  const surprise = h('button', 'btn', 'Surprise!');
+  surprise.addEventListener('click', kidsSurprise);
+  row.append(big, surprise);
+  k.append(row);
+  const bed = h('button', 'text-btn kids-bed', sleepEnd ? `bedtime in ${Math.ceil((sleepEnd - Date.now()) / 60000)} min` : 'bedtime in 15 minutes');
+  bed.addEventListener('click', () => { if (!sleepEnd) { prefs.windDown = true; setSleep(15); } renderPanel(); });
+  k.append(bed);
+  panel.append(k);
 }
 
 // Plain beds for sleeping: one sound, nothing that asks for attention.
@@ -1088,6 +1223,7 @@ addEventListener('pointerdown', (e) => {
 function bumpIdle() {
   document.body.classList.remove('idle');
   clearTimeout(idleTimer);
+  if (immersive) return; // full screen has no interface to fade
   idleTimer = setTimeout(() => {
     if (engine.playing && !openName) document.body.classList.add('idle');
   }, 7000);
@@ -1157,6 +1293,8 @@ function renderSheet() {
 document.querySelectorAll('[data-sheet]').forEach((b) => b.addEventListener('click', () => openSheet(b.dataset.sheet)));
 backdrop.addEventListener('click', closeSheet);
 addEventListener('keydown', (e) => {
+  // full screen: keys can't pause or change anything; Escape leaves
+  if (immersive) { if (e.key === 'Escape') exitImmersive(); e.preventDefault(); return; }
   if (e.key === 'Escape' && openName) closeSheet();
   if (e.target.tagName === 'INPUT') return;
   if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -1547,7 +1685,7 @@ function renderSound(el) {
   el.append(head('Sound', 'volume, space, colour, look'));
   const vol = section('Volume');
   vol.append(control({ id: 'volume', label: 'Master', type: 'range', min: 0, max: 1, step: 0.01, fmt: (v) => `${Math.round(v * 100)}%` },
-    prefs.volume, (v) => { prefs.volume = v; engine.setVolume(v); if (sleepEnd) engine.scheduleSleep((sleepEnd - Date.now()) / 1000, fadeSecs()); save(); }));
+    prefs.volume, (v) => { prefs.volume = v; engine.setVolume(vol()); if (sleepEnd) engine.scheduleSleep((sleepEnd - Date.now()) / 1000, fadeSecs()); save(); }));
   el.append(vol);
   for (const id of ['space', 'colour']) globalSection(GLOBAL_SECTIONS.find((s) => s.id === id), el);
   const touch = GLOBAL_SECTIONS.find((s) => s.id === 'touch');
@@ -1652,7 +1790,7 @@ function setSleep(m) {
   sleepMin = m;
   sleepEnd = m ? Date.now() + m * 60000 : 0;
   sleepFading = false;
-  engine.setVolume(prefs.volume);
+  engine.setVolume(vol());
   if (m) engine.scheduleSleep(m * 60, fadeSecs());
   updateTimerStatus();
   toast(m ? `Stops in ${m < 120 ? `${m} min` : `${m / 60} hours`}${prefs.windDown ? ', winding down as it goes' : ''}` : 'Timer off');
@@ -1715,7 +1853,7 @@ setInterval(() => {
       sleepFading = false;
       if (engine.playing) togglePlay();
       endWind();
-      engine.setVolume(prefs.volume);
+      engine.setVolume(vol());
       if (mode() === 'sleep') renderPanel();
     }
     updateTimerStatus();

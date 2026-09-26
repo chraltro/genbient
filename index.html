@@ -31,10 +31,11 @@
         <button data-mode="listen">Listen</button>
         <button data-mode="run">Run</button>
         <button data-mode="sleep">Sleep<small id="sleep-left"></small></button>
+        <button data-mode="kids">Leonora</button>
       </nav>
       <span class="top-actions">
         <button class="text-btn" id="btn-rec" aria-label="Record a clip">Rec</button>
-        <button class="text-btn" id="btn-share">Share</button>
+        <button class="icon-btn" id="btn-full" aria-label="Play along full screen"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
       </span>
     </header>
 
@@ -45,6 +46,7 @@
       <div class="title-actions">
         <button class="text-btn" id="btn-back" hidden aria-label="Back to the previous scene">‹ Back</button>
         <button class="text-btn" id="btn-save" aria-label="Save this scene">Save</button>
+        <button class="text-btn" id="btn-share">Share</button>
       </div>
       <div class="panel" id="panel"></div>
     </section>
@@ -74,6 +76,8 @@
     <div class="sheet-body" id="sheet-body"></div>
   </section>
 
+  <button class="exit-hold" id="exit-hold" aria-label="Hold to leave full screen"><svg viewBox="0 0 36 36"><circle class="track" cx="18" cy="18" r="15"/><circle class="fill" cx="18" cy="18" r="15"/></svg><span>×</span></button>
+  <p class="immersive-hint" id="immersive-hint">play anywhere · hold the ring to leave</p>
   <div class="toast" id="toast" role="status"><span id="toast-msg"></span><button id="toast-act" hidden></button></div>
   <div class="clip" id="clip" hidden>
     <span class="clip-info"><b>Clip ready</b><small id="clip-meta"></small></span>
