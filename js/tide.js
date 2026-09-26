@@ -86,7 +86,7 @@ export class Tide {
     const depth = 1.3 + change * 1.4;
     let tide = 0.5 + (pink - 0.5) * depth;
     // an opening: the ground first, then the rest, over a few phrases
-    tide = Math.min(tide, 0.2 + n * 0.14);
+    tide = Math.min(tide, 0.3 + n * 0.22);
     this.level = tide;
 
     const roles = this.host.state.roles || {};
@@ -106,15 +106,18 @@ export class Tide {
       const held = n - (this.since[id] ?? 0);
       // nothing stays away too long, and nothing but the ground plays forever
       const core = role === 'lead' || role === 'kit' || role === 'bass';
-      if (!on && held >= (core ? 3 : 5)) want = true;
+      if (!on && held >= (core ? 2 : 4)) want = true;
+      // the opening: one phrase of ground, then the tune and the beat arrive
+      if (n === 1 && (role === 'lead' || role === 'kit')) want = true;
       if (on && held >= Math.round(16 - change * 10) && role !== 'texture') want = false;
       if (want === on) continue;
-      if (held < 2) continue; // stay at least two phrases
+      if (n === 0) continue; // the first phrase is the ground alone
+      if (held < 2 && n > 1) continue; // stay at least two phrases
       moves.push({ id, want, margin: Math.abs(here - th[role]) + (held > 3 ? 0.2 : 0) });
     }
     // no more than two parts change at once, the clearest cases first
     moves.sort((a, b) => b.margin - a.margin);
-    for (const m of moves.slice(0, 2)) {
+    for (const m of moves.slice(0, n === 1 ? 3 : 2)) {
       this.e.layers[m.id].setPresence(m.want ? 1 : 0, clamp(phraseS * (m.want ? 0.5 : 0.7), 3, 16), t);
       this.since[m.id] = n;
     }
