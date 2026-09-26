@@ -535,6 +535,11 @@ export class Bass extends Layer {
     this.deep(t, hz(deg), ghost ? 0.35 : vel, step * (ghost ? 0.5 : Math.min(len, end + 1) * S.gap), S);
   }
 
+  fifthOf(root) {
+    const d = this.degAt(root, 7);
+    return this.h.isChordTone(d) ? d : root + this.h.len;
+  }
+
   // The scale degree above `root` closest to `semis` semitones up.
   degAt(root, semis) {
     const h = this.h;
@@ -603,7 +608,8 @@ export class Bass extends Layer {
         if (barStart) { deg = root; steps = info.spb / 2; } else if (a >= 0.8 && chance(this.dens * 0.6)) { deg = root; }
         break;
       case 'rootfifth':
-        if (a >= 0.8) { deg = (this.alt = !this.alt) ? root : root + 4; }
+        // the fifth of the chord, found from its root by sound, not from an inverted bass
+        if (a >= 0.8) { deg = (this.alt = !this.alt) ? root : this.fifthOf(h.chord.deg); }
         break;
       case 'pulse':
         if (info.sib % 2 === 0 && chance(0.55 + this.dens * 0.45)) { deg = chance(0.15) ? root + h.len : root; steps = 2; }
@@ -621,8 +627,10 @@ export class Bass extends Layer {
         break;
       case 'broken':
         if (info.sib % 2 === 0) {
-          const seq = [0, 2, 4, h.len, 4, 2];
-          deg = h.chord.deg + seq[(info.sib / 2) % seq.length];
+          // the chord's own notes, whatever the scale: up and back down
+          const tn = h.chord.tones;
+          const seq = [tn[0], tn[1] ?? tn[0], tn[2] ?? tn[0] + h.len, tn[0] + h.len, tn[2] ?? tn[0] + h.len, tn[1] ?? tn[0]];
+          deg = seq[(info.sib / 2) % seq.length];
           steps = 2;
         }
         break;

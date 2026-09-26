@@ -156,12 +156,12 @@ export function vary(m, amount = 0.4) {
  */
 const PRIMES = [17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137];
 export function makeLoop({ stepSecs, density = 0.5, taken = [] }) {
-  const want = rand(13, 27) / stepSecs;
+  const want = rand(8, 18) / stepSecs;
   const free = PRIMES.filter((p) => !taken.includes(p));
   const len = free.reduce((a, b) => (Math.abs(b - want) < Math.abs(a - want) ? b : a));
-  const n = 1 + Math.round(clamp(density, 0, 1) * 3);
+  const n = 2 + Math.round(clamp(density, 0, 1) * 3);
   const notes = [];
-  let s = Math.floor(rand(0, len * 0.4));
+  let s = Math.floor(rand(0, Math.min(len * 0.15, 2 / stepSecs)));
   let d = pick([0, 2, 4, 4, 1, 5]);
   for (let i = 0; i < n && s < len - 2; i++) {
     notes.push({ s, d, v: rand(0.6, 0.95), len: pick([6, 8, 12]), snap: chance(0.5) });

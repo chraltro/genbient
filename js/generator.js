@@ -186,7 +186,8 @@ function drumPart(r, { steps, groups, hits, target, downbeat = false, avoid = nu
  */
 const MORPH = {
   pad: (p, G) => { p.bright = mix(p.bright, 0.12 + G.bright * 0.6, 0.55); p.attack = mix(p.attack, lerp(9, 1.5, G.attack), 0.4); p.detune = mix(p.detune, 0.25 + G.age * 0.5, 0.4); p.movement = mix(p.movement, 0.15 + G.change * 0.6, 0.5); },
-  drone: (p, G) => { p.bright = mix(p.bright, 0.1 + G.bright * 0.45, 0.5); p.motion = mix(p.motion, 0.1 + G.change * 0.6, 0.5); p.detune = mix(p.detune, 0.2 + G.age * 0.5, 0.3); },
+  // a drone's sub is felt, not heard: kept in proportion so it can't swallow the mix
+  drone: (p, G) => { p.bright = mix(p.bright, 0.18 + G.bright * 0.45, 0.5); p.motion = mix(p.motion, 0.1 + G.change * 0.6, 0.5); p.detune = mix(p.detune, 0.2 + G.age * 0.5, 0.3); p.sub = Math.min(mix(p.sub, 0.15 + (1 - G.register) * 0.3, 0.6), 0.45); p.octUp = Math.max(p.octUp, 0.25); },
   strings: (p, G) => { p.bow = mix(p.bow, 0.2 + G.bright * 0.5, 0.5); p.vibrato = mix(p.vibrato, 0.15 + G.organic * 0.35, 0.4); p.attack = mix(p.attack, lerp(8, 1.5, G.attack), 0.35); },
   choir: (p, G) => { p.vowel = mix(p.vowel, G.bright * 0.8, 0.45); p.vowelDrift = mix(p.vowelDrift, 0.1 + G.change * 0.5, 0.5); },
   shimmer: (p, G) => { p.sparkle = mix(p.sparkle, G.bright * 0.3, 0.5); p.length = mix(p.length, 1 - G.pace, 0.4); },
@@ -202,6 +203,13 @@ const MORPH = {
   flute: (p, G) => { p.breath = mix(p.breath, 0.1 + G.organic * G.age * 0.6, 0.4); p.vibrato = mix(p.vibrato, 0.2 + G.organic * 0.3, 0.4); p.phrase = Math.round(mix(p.phrase, 3 + G.melody * 5, 0.5)); },
   bowls: (p, G) => { p.quant = mix(p.quant, G.pulse, 0.6); p.beating = mix(p.beating, 0.3 + G.strange * 0.5, 0.4); },
 };
+
+// What's left after each instrument's calibration: some presets of the same
+// instrument are simply louder or softer than others (dB, measured).
+const TRIM = { 'bells.temple': -4.5, 'bells.chime': -1, 'arp.sequence': 6, 'arp.glass': -2.5, 'pad.analog': 4.5, 'pad.glass': -2.5,
+  'pad.air': 3, 'flute.ocarina': -3, 'flute.shakuhachi': 2, 'drone.deep': 1.5, 'bass.pulse': 3, 'bass.funk': -2.5, 'bass.dub': -1.5,
+  'birds.owls': -6, 'wind.breeze': 1.5 };
+const trim = (id) => Math.pow(10, (TRIM[id] || 0) / 40); // level goes as vol squared
 
 // A preset with a touch of seeded variation, then shaped by the genome.
 function sound(r, id, preset, G) {
@@ -268,7 +276,7 @@ const stylesOf = (id) => LAYER_BY_ID[id].schema.find((x) => x.id === 'style')?.o
 function plan(r, G, beat) {
   const want = [];
   const add = (role, w) => { if (w > 0 && r.chance(clamp(w, 0, 1))) want.push({ role, w }); };
-  add('bed', G.voices < 0.25 && G.melody > 0.6 ? 0.5 : 0.97);
+  // the ground is not optional: without it a melody or a beat has nothing to stand on
   add('lead', smooth(0.08, 0.4, G.melody) * 0.95 + 0.05);
   add('bass', beat ? 0.9 : clamp(G.pulse * 0.6 + G.motion * 0.35 + (0.5 - G.register) * 0.5 + G.density * 0.2 - 0.25, 0, 0.85));
   add('halo', clamp(G.light * 0.45 + G.space * 0.35 + G.register * 0.35 - 0.45 + G.voices * 0.3, 0, 0.8));
@@ -278,9 +286,7 @@ function plan(r, G, beat) {
   const budget = 1 + Math.round(G.voices * 3.2);
   const room = Math.max(1, budget - (beat ? 1 : 0) + (want.some((x) => x.role === 'bass') ? 1 : 0));
   want.sort((a, b) => b.w - a.w);
-  const kept = want.slice(0, room);
-  if (!kept.some((x) => ['bed', 'lead', 'bed2', 'halo'].includes(x.role))) kept.push({ role: 'bed', w: 1 });
-  return kept.map((x) => x.role);
+  return ['bed', ...want.slice(0, Math.max(0, room - 1)).map((x) => x.role)];
 }
 
 /* ─────────────────────────── realising a genome ─────────────────────────── */
@@ -435,7 +441,7 @@ function natureFor(r, G, lean, layers, roles) {
     if (!pick) break;
     taken.push(pick.layer);
     const p = sound(r, pick.layer, PRESETS[pick.layer][pick.name], G);
-    p.vol = (k === 0 ? ROLE_LEVEL.texture : ROLE_LEVEL.texture2) * lerp(0.75, 1.15, G.nature);
+    p.vol = (k === 0 ? ROLE_LEVEL.texture : ROLE_LEVEL.texture2) * lerp(0.75, 1.15, G.nature) * trim(pick.id);
     layers[pick.layer] = { on: true, p };
     roles[pick.layer] = k === 0 ? 'texture' : 'texture2';
   }
@@ -473,7 +479,7 @@ function realise(r, G, { beat, lean }) {
   for (const role of parts) {
     if (role === 'bass') {
       layers.bass = { on: true, p: bassFor(r, G, beat) };
-      layers.bass.p.vol = ROLE_LEVEL.bass * r.float(0.94, 1.04);
+      layers.bass.p.vol = ROLE_LEVEL.bass * r.float(0.94, 1.04) * trim(`bass.${layers.bass.p.pattern === 'groove' ? layers.bass.p.bstyle : layers.bass.p.pattern}`);
       roles.bass = 'bass';
       used.add('bass');
       continue;
@@ -486,7 +492,7 @@ function realise(r, G, { beat, lean }) {
     if (!v) continue;
     used.add(v.layer);
     const p = sound(r, v.layer, PRESETS[v.layer][v.name], G);
-    p.vol = ROLE_LEVEL[role] * r.float(0.94, 1.04);
+    p.vol = ROLE_LEVEL[role] * r.float(0.94, 1.04) * trim(v.id);
     if (role === 'halo' && 'oct' in p && v.layer !== 'shimmer') p.oct = Math.max(p.oct, v.layer === 'bells' ? 0 : 1);
     const def = LAYER_BY_ID[v.layer];
     if (def.group === 'melody') {
@@ -497,7 +503,8 @@ function realise(r, G, { beat, lean }) {
       if ('density' in p) p.density = clamp(0.15 + G.density * 0.6, 0.1, 0.85) * (role === 'lead' ? 1 : 0.8);
       const styles = stylesOf(v.layer);
       if (styles) {
-        const avail = styles.filter((s) => BEHAVIOUR[s] && (s !== 'euclid' || beat));
+        // loops drift free of the bar; against a beat they just sound lost
+        const avail = styles.filter((s) => BEHAVIOUR[s] && (s !== 'euclid' || beat) && (s !== 'loops' || !beat));
         p.style = choose(r, avail, (s) => BEHAVIOUR[s](G) - (role === 'answer' && s === leadStyle && s !== 'motif' && s !== 'loops' ? 0.4 : 0), 0.25);
       }
       if (role === 'lead') { leadV = v; leadStyle = p.style ?? v.layer; }
@@ -536,7 +543,7 @@ function eventRate(id, p, g) {
   if (id === 'flute') { const n = p.phrase || 5; return n / (n * 4 * step * 1.3 + 16 * step * (1 + g.rests * 4) + (4 * step) / (0.05 + d * 0.3)); }
   if (id === 'arp') return (16 / (p.rate || 2)) * (0.35 + d * 0.65) / (16 * step) * 0.7;
   switch (p.style) {
-    case 'loops': return (1 + Math.round(d * 3)) / lerp(26, 10, clamp(g.bpm / 120, 0, 1));
+    case 'loops': return (2 + Math.round(d * 3)) / 13;
     case 'motif': return ((0.15 + d * 0.75) * 0.45 * (1 - g.rests * 0.3)) / step;
     case 'sparse': return (groups.length * (0.1 + d * 0.4)) / barS;
     case 'walk': return (groups.length * (0.25 + d * 0.6) + groups.length * d * 0.35 + steps / 2 * d * 0.08) / barS;

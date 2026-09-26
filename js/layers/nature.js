@@ -1,5 +1,5 @@
 // Weather, water, fire and creatures, built from shaped noise and sines.
-import { lerp, rand, randi, pick, chance, expRand, glide, makePanner, osc, gain, filter, disposeOnEnd, pluckEnv } from '../util.js';
+import { clamp, lerp, rand, randi, pick, chance, expRand, glide, makePanner, osc, gain, filter, disposeOnEnd, pluckEnv } from '../util.js';
 import { R, C } from '../params.js';
 import { Layer, Continuous, noiseSrc, common, DENSITY } from './base.js';
 
@@ -228,7 +228,8 @@ export class Birds extends Layer {
     R('distance', 'Distance', 0, 1, 0.35),
     R('pitch', 'Pitch', 0.6, 1.5, 1, { fmt: (v) => `×${v.toFixed(2)}` }),
   ];
-  interval() { return expRand(lerp(8, 1, this.dens)); }
+  // birds keep their own time: the music's density hardly touches them
+  interval() { return expRand(lerp(8, 1, clamp(this.p.density * 0.85 + this.dens * 0.15, 0, 1))); }
   schedule(now, horizon) {
     this.events(now, horizon, () => this.interval(), (t) => this.song(t));
   }

@@ -265,7 +265,9 @@ export class Flute extends Layer {
       this.deg += chance(this.g.leap * 0.5) ? pick([-3, 3, 4]) : pick([-2, -1, -1, 1, 1, 2]);
       if (i === count - 1 && !h.isChordTone(this.deg)) this.deg = h.nearestChordTone(this.deg);
       this.deg = clamp(this.deg, -1, h.len + 3);
-      const f = h.hz(this.deg, 5 + p.oct);
+      let f = h.hz(this.deg, 5 + p.oct);
+      while (f > this.def.highHz) f /= 2; // a flute up there whistles
+      while (f < this.def.lowHz) f *= 2;
       const dur = (i === count - 1 ? pick([8, 12, 16]) : pick(choices)) * info.dur;
       lastDur = dur;
       if (i === 0) o.frequency.setValueAtTime(f, t);

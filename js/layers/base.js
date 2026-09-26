@@ -218,9 +218,24 @@ export class Melodic extends Layer {
   playDeg(info, d, v, seconds, snap) {
     const h = this.h;
     let deg = h.chord.deg + d;
-    if (snap) deg = h.nearestChordTone(deg);
-    const f = h.hz(deg, this.octave);
-    this.play(this.e.human(info.t), f, this.vel(v), seconds);
+    if (snap || this.rubs(deg, seconds)) deg = h.nearestChordTone(deg);
+    this.play(this.e.human(info.t), this.inRange(h.hz(deg, this.octave)), this.vel(v), seconds);
+  }
+
+  // A held note a half step from the chord grinds; a passing one doesn't.
+  rubs(deg, seconds) {
+    const h = this.h;
+    if (seconds < 0.6 || h.isChordTone(deg)) return false;
+    const pc = ((h.semis(deg) % 12) + 12) % 12;
+    return h.chord.tones.some((t) => { const x = ((h.semis(t) % 12) + 12) % 12; const d = Math.abs(x - pc); return d === 1 || d === 11; });
+  }
+
+  // Every instrument has a range where it sounds sweet; fold octaves into it.
+  inRange(f) {
+    const lo = this.def.lowHz ?? 110, hi = this.def.highHz ?? 1800;
+    while (f > hi && f / 2 >= lo) f /= 2;
+    while (f < lo && f * 2 <= hi) f *= 2;
+    return f;
   }
 
   /*
@@ -300,8 +315,8 @@ export class Melodic extends Layer {
   // A degree of the key, pulled onto the nearest chord tone when it should rest there.
   playKey(info, d, v, seconds, snap) {
     const h = this.h;
-    const deg = snap ? h.nearestChordTone(d) : d;
-    this.play(this.e.human(info.t), h.hz(deg, this.octave), this.vel(v), seconds);
+    const deg = snap || this.rubs(d, seconds) ? h.nearestChordTone(d) : d;
+    this.play(this.e.human(info.t), this.inRange(h.hz(deg, this.octave)), this.vel(v), seconds);
   }
 
   arpStep(info) {
@@ -344,12 +359,16 @@ export class Melodic extends Layer {
     const a = accent(info.sib, info.groups);
     const first = info.sib === 0;
     if (!(first || (a >= 0.8 && chance(this.dens * 0.5)) || (a >= 0.5 && chance(this.dens * 0.12)))) return;
+    // comping breathes: at least a beat between chords
+    const beat = info.groups[0] * info.dur;
+    if (!first && this.lastStrike != null && info.t - this.lastStrike < beat * 0.99) return;
+    this.lastStrike = info.t;
     const h = this.h;
     const notes = h.voice(h.chord.tones, this.lastVoicing, { center: 12 * (this.octave + 1) + 2, spread: this.g.spread, lead: this.g.lead, count: Math.min(4, h.chord.tones.length) });
     this.lastVoicing = notes;
     const t = this.e.human(info.t);
     const roll = this.p.roll ?? 0.3;
-    notes.forEach((m, i) => this.play(t + i * roll * 0.06, h.freq(m), this.vel(first ? 0.8 : 0.55), info.dur * 8));
+    notes.forEach((m, i) => this.play(t + i * roll * 0.06, this.inRange(h.freq(m)), this.vel(first ? 0.8 : 0.55), info.dur * 8));
   }
 }
 

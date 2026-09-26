@@ -172,7 +172,13 @@ export class Engine {
     this.agcMeter.fftSize = 2048;
     this.agcBuf = new Float32Array(2048);
     this.agcLevel = null;
-    this.chOut.connect(this.agcMeter);
+    // measured roughly as ears weigh it (K-weighting): lows count for little
+    this.agcWeight = filter(ctx, 'highpass', 120, 0.5);
+    this.agcShelf = ctx.createBiquadFilter();
+    this.agcShelf.type = 'highshelf';
+    this.agcShelf.frequency.value = 1500;
+    this.agcShelf.gain.value = 4;
+    this.chOut.connect(this.agcWeight).connect(this.agcShelf).connect(this.agcMeter);
     this.chOut.connect(this.agc).connect(this.drive).connect(this.comp).connect(this.limit).connect(this.master).connect(ctx.destination);
 
     this.analyser = ctx.createAnalyser();
@@ -447,7 +453,7 @@ export class Engine {
     if (rms < 0.004) return; // silence says nothing about level
     // about twenty seconds of memory, so a phrase's rests don't pump
     this.agcLevel = this.agcLevel == null ? rms : this.agcLevel + (rms - this.agcLevel) * 0.05;
-    const gainNow = clamp(0.11 / this.agcLevel, 0.7, 1.8);
+    const gainNow = clamp(0.08 / this.agcLevel, 0.6, 2.8);
     glide(this.agc.gain, gainNow, now, 3);
   }
 

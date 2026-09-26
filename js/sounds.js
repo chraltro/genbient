@@ -87,7 +87,7 @@ export const PRESETS = {
   stream: { brook: { flow: 0.45, babble: 0.55, depth: 0.4 }, river: { flow: 0.7, babble: 0.35, depth: 0.7 } },
   wind: { breeze: { gusts: 0.35, pitch: 0.45, whistle: 0.15, speed: 0.35 }, high: { gusts: 0.6, pitch: 0.6, whistle: 0.35, speed: 0.5 } },
   fire: { hearth: { crackle: 0.5, roar: 0.35, pops: 0.35 } },
-  birds: { dawn: { density: 0.55, species: 'mixed', distance: 0.3 }, distant: { density: 0.35, species: 'whistle', distance: 0.6 }, owls: { density: 0.25, species: 'owl', distance: 0.5 } },
+  birds: { dawn: { density: 0.85, species: 'mixed', distance: 0.3 }, distant: { density: 0.35, species: 'whistle', distance: 0.6 }, owls: { density: 0.25, species: 'owl', distance: 0.5 } },
   night: { crickets: { chorus: 0.6, rate: 0.5, pitch: 0.5, frogs: 0.15 }, pond: { chorus: 0.4, rate: 0.45, pitch: 0.45, frogs: 0.5 } },
   thunder: { distant: { frequency: 0.35, distance: 0.7, length: 0.6 } },
   noise: { brown: { color: 'brown', sweep: 0.25, sweepRate: 0.2 }, pink: { color: 'pink', sweep: 0.3, sweepRate: 0.25 } },
