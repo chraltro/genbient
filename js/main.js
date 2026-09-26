@@ -1,13 +1,14 @@
 import { Engine } from './engine.js';
 import { Conductor, FRESH_BASS } from './conductor.js';
 import { Recorder } from './recorder.js';
+import { StepSense } from './stepsense.js';
 import { Visuals } from './visuals.js';
 import { LAYERS, LAYER_BY_ID, GROUPS } from './layers/index.js';
 import { NOTE_NAMES, MODES } from './theory.js';
 import { GLOBAL_SECTIONS, GLOBAL_BY_ID, VISUAL_PARAMS, defaults, fill, randomize } from './params.js';
 import {
   PALETTES, MOODS, STARTS, SECTIONS, CADENCES, runify, unrun, generateScene, startScene, rerollSection, mutateScene,
-  encodeScene, decodeScene, normalize,
+  encodeScene, decodeScene, normalize, shareCode, decodeShare,
 } from './scenes.js';
 import { seeded, clamp, lerp, glide, pick } from './util.js';
 import { SONG_MODE, PROGRESSION_COUNT } from './progressions.js';
@@ -28,7 +29,7 @@ const store = {
 };
 
 const prefs = Object.assign(
-  { volume: 0.85, journey: 0, breath: 'off', wake: false, mood: 'any', energy: null, filter: 'playing', quality: 'balanced', cadence: 165, runSong: true, runIntensity: 'steady', lite: false, recMax: 0, recFade: true, recLevel: true, intervals: 'off', pushCadence: 0, mode: 'listen', warmup: 5, runGoal: 0, sleepFade: 5, windDown: true, song: false },
+  { volume: 0.85, journey: 0, breath: 'off', wake: false, mood: 'any', energy: null, filter: 'playing', quality: 'balanced', cadence: 165, runSong: true, runIntensity: 'steady', lite: false, recMax: 0, recFade: true, recLevel: true, intervals: 'off', pushCadence: 0, mode: 'listen', warmup: 5, runGoal: 0, sleepFade: 5, windDown: true, song: false, focusLen: 25, breakLen: 5, focusRounds: 4, focusCalm: true },
   store.get('prefs', {}),
 );
 prefs.vp = fill(prefs.vp, VISUAL_PARAMS);
@@ -45,24 +46,28 @@ let state = loadInitial();
 let started = false;
 let lastSceneChange = Date.now();
 
-// Messaging apps sometimes glue text onto a link, so only the code itself is read.
-function sceneFromHash() {
-  const m = location.hash.match(/#s=([A-Za-z0-9_-]+)/);
-  if (!m) return undefined;
+// A shared scene in the address: "#amber-harbor.z…" (or an older "#s=…").
+// Messaging apps sometimes glue text onto a link, so only the code is read.
+const hasShare = () => /#s=[A-Za-z0-9_-]|\.z[A-Za-z0-9_-]/.test(location.hash);
+async function sceneFromHash() {
+  if (!hasShare()) return undefined;
+  const hash = location.hash;
   history.replaceState(null, '', location.pathname + location.search);
-  const s = decodeScene(m[1]);
-  if (!s) setTimeout(() => toast('That link couldn\'t be read'), 800);
+  const s = await decodeShare(hash);
+  if (!s) toast('That link couldn\'t be read');
   return s;
 }
 
-addEventListener('hashchange', () => {
-  const s = sceneFromHash();
-  if (s) { applyScene(s); toast(`Shared scene: ${s.name}`); }
-});
+async function openShared(first) {
+  const s = await sceneFromHash();
+  if (!s) return;
+  applyScene(s, { remember: !first });
+  toast(first ? 'Shared soundscape · tap to listen' : `Shared scene: ${s.name}`);
+}
+
+addEventListener('hashchange', () => openShared(false));
 
 function loadInitial() {
-  const s = sceneFromHash();
-  if (s) { setTimeout(() => toast('Shared soundscape loaded · tap to listen'), 800); return s; }
   const saved = store.get('scene2', null);
   if (saved) return normalize(saved);
   // First visit: something new but gentle: no beat, a bed of sound under a
@@ -78,7 +83,8 @@ function loadInitial() {
 let saveTimer;
 function save() {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => { store.set('scene2', state); store.set('prefs', prefs); }, 300);
+  readyUrl = null;
+  saveTimer = setTimeout(() => { store.set('scene2', state); store.set('prefs', prefs); refreshShare(); }, 300);
 }
 
 /* ─────────────────────────── engine events ─────────────────────────── */
@@ -95,6 +101,7 @@ engine.on('key', (hm) => {
 engine.on('evolve', (ev) => {
   if (ev.global) {
     if (winding && (ev.id === 'density' || ev.id === 'bright')) return; // wind-down owns these for now
+    if (focus.phase === 'focus' && prefs.focusCalm && ev.id === 'density') return; // so does focus
     if (running() && ev.id === 'bright') ev.value = Math.max(ev.value, 0.78);
     if (running() && ev.id === 'revMix') ev.value = Math.min(ev.value, 0.45);
     state.g[ev.id] = ev.value;
@@ -543,6 +550,7 @@ function newRunMusic() {
 }
 
 function endRun() {
+  if (steps.active) { steps.stop(); senseState = ''; }
   const took = runElapsed;
   if (runPhase === 'push') setGlobal('bpm', runBase);
   resetRunClock();
@@ -571,7 +579,7 @@ function cadenceControl(views = cadenceViews) {
 
 // The three ways people use this sit at the top; each one shows its own
 // few controls under the scene name. Deeper settings stay in the dock.
-const mode = () => (running() ? 'run' : ['sleep', 'kids'].includes(prefs.mode) ? prefs.mode : 'listen');
+const mode = () => (running() ? 'run' : ['sleep', 'kids', 'focus'].includes(prefs.mode) ? prefs.mode : 'listen');
 const panel = $('#panel');
 const panelViews = new Set();
 const refreshViews = () => { cadenceViews.forEach((f) => f()); panelViews.forEach((f) => f()); };
@@ -596,6 +604,7 @@ function renderModes() {
   });
   document.body.dataset.mode = m;
   engine.setVolume(vol());
+  visuals.drawing = m === 'kids'; // in Simple mode a finger leaves colour behind
   if (typeof wakeBreath === 'function') wakeBreath();
 }
 document.querySelectorAll('.modes [data-mode]').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
@@ -651,12 +660,41 @@ function renderPanel() {
   } else if (m === 'kids') {
     renderKids();
     return;
+  } else if (m === 'focus') {
+    choose('flen', [[15, '15 minutes'], [25, '25 minutes'], [45, '45 minutes'], [50, '50 minutes'], [90, '90 minutes']], prefs.focusLen, (v) => { prefs.focusLen = v; save(); });
+    text(' of focus, ');
+    choose('blen', [[5, '5 minute'], [10, '10 minute'], [15, '15 minute']], prefs.breakLen, (v) => { prefs.breakLen = v; save(); });
+    text(' breaks, ');
+    choose('rounds', [[1, 'once'], [2, 'two rounds'], [4, 'four rounds'], [6, 'six rounds'], [0, 'on repeat']], prefs.focusRounds, (v) => { prefs.focusRounds = v; save(); });
+    text('. ');
+    flip(prefs.focusCalm ? 'Calm music while working' : 'Music as it is while working', () => { prefs.focusCalm = !prefs.focusCalm; save(); applyFocusSound(); renderPanel(); });
+    text('.');
+    const lab = h('span', 'section-label');
+    const go = h('button', 'text-btn skip-btn', '');
+    const stop = h('button', 'text-btn', 'stop');
+    go.addEventListener('click', () => (focus.phase ? (focus.paused ? resumeFocus() : pauseFocus()) : startFocus()));
+    stop.addEventListener('click', stopFocus);
+    whisper.append(lab, go, stop);
+    panelViews.add(() => {
+      lab.textContent = focusLabel();
+      go.textContent = !focus.phase ? 'start' : focus.paused ? 'resume' : 'pause';
+      stop.hidden = !focus.phase;
+    });
   } else if (m === 'run') {
     const top = h('div', 'run-top');
     const tap = h('button', 'text-btn tap-link', 'tap your steps');
     tap.setAttribute('aria-label', 'Tap along with your steps to set the cadence');
     tap.addEventListener('click', () => tapStep());
-    top.append(cadenceControl(panelViews), tap);
+    const links = h('div', 'run-links');
+    links.append(tap);
+    if (StepSense.supported) {
+      const sense = h('button', 'text-btn tap-link', '');
+      sense.setAttribute('aria-label', 'Count my steps with the motion sensor');
+      sense.addEventListener('click', toggleSense);
+      panelViews.add(() => { sense.textContent = senseLabel(); sense.classList.toggle('live', steps.active); });
+      links.append(sense);
+    }
+    top.append(cadenceControl(panelViews), links);
     panel.append(top);
     choose('iv', Object.entries(INTERVALS).map(([id, iv]) => [id, iv ? iv.label : 'No intervals']), prefs.intervals, setIntervals);
     text(', ');
@@ -737,6 +775,79 @@ function setBass(v) {
   setGroove(true);
 }
 
+/* ─────────────────────────── focus sessions ─────────────────────────── */
+
+// Work and rest in rounds. While working the music thins out and holds still
+// (engine-only, the scene itself is untouched); breaks open it up again. A
+// soft bell marks each change: rising into focus, falling into a break.
+const focus = { phase: null, endAt: 0, left: 0, round: 1, paused: false };
+
+function focusLabel() {
+  if (!focus.phase) return prefs.focusRounds ? `${prefs.focusRounds} × ${prefs.focusLen} min` : `${prefs.focusLen} min at a time`;
+  if (focus.phase === 'done') return 'all rounds done · well done';
+  const left = focus.paused ? focus.left : Math.max(0, focus.endAt - Date.now());
+  const rounds = prefs.focusRounds ? ` ${focus.round} of ${prefs.focusRounds}` : ` ${focus.round}`;
+  return `${focus.phase === 'focus' ? 'focus' : 'break'}${focus.phase === 'focus' ? rounds : ''} · ${mmss(left / 1000)}${focus.paused ? ' · paused' : ''}`;
+}
+
+function applyFocusSound() {
+  if (!engine.ctx) return;
+  const calm = focus.phase === 'focus' && prefs.focusCalm;
+  engine.setGlobal('density', calm ? state.g.density * 0.45 : state.g.density);
+  engine.setGlobal('evolve', calm ? Math.min(state.g.evolve, 0.1) : state.g.evolve);
+}
+
+function focusPhase(phase) {
+  focus.phase = phase;
+  focus.endAt = Date.now() + (phase === 'focus' ? prefs.focusLen : prefs.breakLen) * 60000;
+  focus.paused = false;
+  applyFocusSound();
+  if (engine.ctx) conductor.cue(phase === 'focus');
+  toast(phase === 'focus' ? `Focus · ${prefs.focusLen} minutes` : `Break · ${prefs.breakLen} minutes`);
+  refreshViews();
+}
+
+function startFocus() {
+  if (!started || !engine.playing) togglePlay();
+  focus.round = 1;
+  focusPhase('focus');
+}
+
+function pauseFocus() { focus.left = Math.max(0, focus.endAt - Date.now()); focus.paused = true; refreshViews(); }
+function resumeFocus() { focus.endAt = Date.now() + focus.left; focus.paused = false; refreshViews(); }
+
+function stopFocus() {
+  focus.phase = null;
+  focus.paused = false;
+  applyFocusSound();
+  $('#focus-left').textContent = '';
+  refreshViews();
+}
+
+function tickFocus() {
+  const el = $('#focus-left');
+  if (!focus.phase || focus.phase === 'done') { el.textContent = ''; return; }
+  if (focus.paused) return;
+  const left = focus.endAt - Date.now();
+  el.textContent = `${Math.max(1, Math.ceil(left / 60000))}m`;
+  if (left > 0) { if (mode() === 'focus') refreshViews(); return; }
+  if (focus.phase === 'focus') {
+    if (prefs.focusRounds && focus.round >= prefs.focusRounds) {
+      focus.phase = 'done';
+      applyFocusSound();
+      if (engine.ctx) { conductor.cue(false); setTimeout(() => conductor.cue(false), 900); }
+      toast('All rounds done · well done');
+      el.textContent = '';
+      refreshViews();
+      return;
+    }
+    focusPhase('break');
+  } else {
+    focus.round++;
+    focusPhase('focus');
+  }
+}
+
 /* ─────────────────────────── full screen: play along ─────────────────────────── */
 
 // The whole screen becomes the instrument. Nothing on it pauses or changes
@@ -806,6 +917,9 @@ const WORLDS = {
   rain: { name: 'Rain', mood: 'oceanic', bed: 'rain', tune: 'keys', palette: 'fog', icon: '<path d="M12 3c3 5 6 8 6 11a6 6 0 0 1-12 0c0-3 3-6 6-11z"/>' },
   stars: { name: 'Stars', mood: 'celestial', bed: 'shimmer', tune: 'bells', palette: 'plum', icon: '<path d="M12 2.8c.7 5 3.3 7.8 8.8 9.2-5.5 1.4-8.1 4.2-8.8 9.2-.7-5-3.3-7.8-8.8-9.2 5.5-1.4 8.1-4.2 8.8-9.2Z"/>' },
   night: { name: 'Night', mood: 'sleep', bed: 'night', tune: 'piano', palette: 'night', icon: '<path d="M19 14.5A7.5 7.5 0 1 1 9.5 5a6 6 0 0 0 9.5 9.5z"/>' },
+  underwater: { name: 'Underwater', mood: 'oceanic', bed: 'ocean', tune: 'bowls', palette: 'tide', extra: 'drone', bedTone: 0.3, icon: '<path d="M3 12c3-4 8-5 12-2l4-3v10l-4-3c-4 3-9 2-12-2z"/><circle cx="8" cy="11" r=".8"/>' },
+  campfire: { name: 'Campfire', mood: 'hearth', bed: 'fire', tune: 'keys', palette: 'ember', icon: '<path d="M12 3c1 4 5 5 5 10a5 5 0 0 1-10 0c0-3 2-4 2-7 1 1 2 2 3 2 0-2-1-3 0-5z"/><path d="M5 21l14-3M5 18l14 3"/>' },
+  mountain: { name: 'Mountain', mood: 'glacial', bed: 'wind', tune: 'flute', palette: 'frost', icon: '<path d="M3 19l6-10 4 6 3-4 5 8z"/>' },
 };
 const KID_VOICES = [['bell', 'Bells'], ['pluck', 'Piano'], ['voice', 'Singing'], ['glass', 'Glass'], ['warm', 'Soft']];
 
@@ -817,6 +931,8 @@ function kidsScene(world) {
   on('pad', { vol: 0.5, oct: 0 });
   on(w.bed, { vol: 0.55 });
   on(w.tune, { vol: 0.42, style: 'motif', density: 0.4, oct: 0 });
+  if (w.extra) on(w.extra, { vol: 0.35, oct: 0 });
+  if (w.bedTone) s.layers[w.bed].p.tone = w.bedTone; // underwater: the sea heard from below
   Object.assign(s, { name: w.name, tagline: '', palette: w.palette, mode: 'majpent', root: pick([0, 2, 5, 7]), kids: world });
   Object.assign(s.g, { song: true, groove: false, bpm: 76, meter: '4/4', touchMode: 'both', touchNotes: 'scale', touchVoice: prefs.kidVoice || 'bell', touchLevel: 0.8, touchEcho: 0.35, touchRange: 2, touchSculpt: 0.35 });
   return s;
@@ -1038,6 +1154,39 @@ function tickRun(dt) {
 function syncLock() {
   conductor.lock = goalDone ? 'easy' : runPhase === 'push' ? 'push' : runPhase === 'easy' ? 'easy' : null;
   conductor.intensity = runIntensity();
+}
+
+// The phone counts steps itself: start running and the beat finds you.
+let senseState = '';
+let senseAt = 0;
+const steps = new StepSense((c) => {
+  senseState = `${c}`;
+  const now = performance.now();
+  const bpm = running() ? Math.round(state.g.bpm) : null;
+  // follow the runner, but gently: at most every 8 s, and only for a real change
+  if (bpm == null || (Math.abs(c - bpm) >= 2 && now - senseAt > 8000)) {
+    senseAt = now;
+    setCadence(c);
+  }
+  refreshViews();
+}, (s) => { senseState = s; refreshViews(); });
+
+function senseLabel() {
+  if (!steps.active) return 'count my steps';
+  if (senseState === 'listening') return 'start running…';
+  if (senseState === 'counting') return 'counting steps…';
+  return `following you · ${senseState}`;
+}
+
+async function toggleSense() {
+  if (steps.active) { steps.stop(); senseState = ''; refreshViews(); toast('Stopped counting steps'); return; }
+  try {
+    await steps.start();
+    toast('Start running: the beat will find your step');
+  } catch (err) {
+    toast(err.message === 'denied' ? 'Motion access was declined' : 'This device can’t count steps');
+  }
+  refreshViews();
 }
 
 // Tap tempo: tap along with your footsteps to set the cadence.
@@ -1302,7 +1451,7 @@ addEventListener('keydown', (e) => {
   const keys = {
     g: generate, n: generate, b: () => history_.length && back(), s: saveScene, r: () => (recorder.recording ? stopRecording() : startRecording()),
     1: () => openSheet('create'), 2: () => openSheet('layers'), 3: () => openSheet('music'), 4: () => openSheet('sound'),
-    l: () => setMode('listen'), u: () => setMode('run'), z: () => setMode('sleep'),
+    l: () => setMode('listen'), u: () => setMode('run'), f: () => setMode('focus'), z: () => setMode('sleep'),
   };
   const fn = keys[e.key.toLowerCase()];
   if (fn && (!openName || /\d/.test(e.key))) fn();
@@ -1839,6 +1988,7 @@ let lastTick = Date.now();
 setInterval(() => {
   const now = Date.now();
   tickRun(Math.min(5, (now - lastTick) / 1000));
+  tickFocus();
   lastTick = now;
   if (sleepEnd) {
     const left = sleepEnd - now;
@@ -1858,7 +2008,7 @@ setInterval(() => {
     }
     updateTimerStatus();
   }
-  if (engine.playing && prefs.journey && !conductor.active && !winding && now - lastSceneChange > prefs.journey * 60000) {
+  if (engine.playing && prefs.journey && !conductor.active && !winding && focus.phase !== 'focus' && now - lastSceneChange > prefs.journey * 60000) {
     applyScene(mutateScene(state, newSeed()), { fade: 10 });
   }
 }, 1000);
@@ -1903,10 +2053,13 @@ wakeBreath();
 
 /* ─────────────────────────── share ─────────────────────────── */
 
-const shareUrl = () => `${location.origin}${location.pathname}#s=${encodeScene(state)}`;
+const shareUrl = async () => `${location.origin}${location.pathname}#${await shareCode(state)}`;
+// kept ready in the background: phones only open the share sheet straight after a tap
+let readyUrl = null;
+const refreshShare = () => { const at = state; shareUrl().then((u) => { if (state === at) readyUrl = u; }).catch(() => {}); };
 
 async function share_() {
-  const url = shareUrl();
+  const url = readyUrl || await shareUrl();
   if (navigator.share) {
     try {
       await navigator.share({ title: `${state.name} · Genbient`, text: `Listen to “${state.name}”, a generative soundscape`, url });
@@ -1919,7 +2072,7 @@ async function share_() {
 }
 
 async function copyLink() {
-  const url = shareUrl();
+  const url = readyUrl || await shareUrl();
   try {
     await navigator.clipboard.writeText(url);
     toast('Link copied');
@@ -2003,6 +2156,7 @@ applyVisualPrefs();
 if (prefs.knowsTokens) document.body.classList.add('knows');
 applyScene(state, { animate: false, remember: false });
 booted = true;
+if (hasShare()) openShared(true);
 bumpIdle();
 
-window.genbient = { prefs, tickRun, recorder, engine, visuals, keepAlive, conductor, get state() { return state; }, applyScene, generateScene, LAYER_BY_ID, GLOBAL_BY_ID, defaults };
+window.genbient = { prefs, tickRun, focus, shareUrl, recorder, engine, visuals, keepAlive, conductor, get state() { return state; }, applyScene, generateScene, LAYER_BY_ID, GLOBAL_BY_ID, defaults };

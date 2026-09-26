@@ -85,37 +85,58 @@ function layerParams(def, r, vol) {
   return p;
 }
 
+/*
+ * Which layers a scene gets, by recipe rather than by dice:
+ *   one harmonic bed (a second only in slow, still scenes, and only one that complements it)
+ *   with the beat on, always a real kit, sized by energy, plus bass from medium energy up
+ *   one melody (none in the stillest scenes; a second only when there's energy, and then they trade phrases)
+ *   one bed of weather or noise the mood loves, sometimes its two signature textures
+ * The mood's likes choose within each group.
+ */
 function chooseLayers(r, mood, energy, rhythmMode) {
   const likes = mood.likes;
   const chosen = new Set();
   const w = (id) => likes[id] || 0.3;
-  const byGroup = (g) => LAYERS.filter((l) => l.group === g).map((l) => l.id);
+  const choose = (ids, weight = w) => {
+    const pool = ids.filter((id) => !chosen.has(id));
+    if (!pool.length) return null;
+    const id = r.weighted(pool, pool.map(weight));
+    chosen.add(id);
+    return id;
+  };
 
-  const anchors = TONAL_ANCHORS;
-  chosen.add(r.weighted(anchors, anchors.map((id) => w(id) + 0.2)));
-  if (r.chance(0.45)) chosen.add(r.weighted(anchors, anchors.map((id) => w(id))));
+  const bed = choose(TONAL_ANCHORS, (id) => w(id) + 0.2);
+  if (energy < 0.3 && r.chance(0.35)) choose(['drone', 'shimmer'].filter((id) => id !== bed));
 
-  const rhythm = byGroup('rhythm');
-  if (rhythmMode !== false && (rhythmMode === 'force' || r.chance(clamp(energy * 1.3, 0, 0.95)))) {
-    const n = 1 + Math.round(energy * 2.2 * r.float(0.5, 1));
-    const pool = [...rhythm];
-    for (let i = 0; i < n && pool.length; i++) {
-      const id = r.weighted(pool, pool.map((x) => w(x)));
-      chosen.add(id);
-      pool.splice(pool.indexOf(id), 1);
+  if (rhythmMode !== false) {
+    if (energy < 0.3) {
+      // a soft heartbeat of a beat
+      choose(['handdrum', 'pulse', 'wood'], (id) => w(id) + (id === 'handdrum' ? 1 : 0));
+      if (r.chance(0.5)) chosen.add('shaker');
+    } else if (energy < 0.6) {
+      choose(['kick', 'handdrum'], (id) => w(id) + 1);
+      choose(['shaker', 'wood'], (id) => w(id) + 1);
+    } else {
+      chosen.add('kick');
+      chosen.add('shaker');
+      choose(['handdrum', 'wood'], (id) => w(id) + 0.5);
     }
-    if (energy > 0.5 && r.chance(0.7)) chosen.add('bass');
+    if (energy >= 0.4) chosen.add('bass');
   }
-  const melody = byGroup('melody');
-  const nm = energy < 0.12 ? r.int(0, 1) : r.int(1, 2);
-  for (let i = 0; i < nm; i++) chosen.add(r.weighted(melody, melody.map((id) => w(id))));
 
-  const texture = [...byGroup('nature'), ...byGroup('mind')];
-  const nt = r.chance(0.8) ? r.int(1, 2) : 0;
-  for (let i = 0; i < nt; i++) chosen.add(r.weighted(texture, texture.map((id) => w(id) * (id === 'binaural' ? 0.4 : 1))));
-  // seven layers at most: past that the mix turns to soup. Weather goes first, then extra percussion.
-  // the mood's least-loved textures go first, so a storm keeps its rain
-  const order = [...[...texture].sort((a, b) => w(a) - w(b)), 'wood', 'handdrum', 'pulse', 'shaker'];
+  const melody = LAYERS.filter((l) => l.group === 'melody').map((l) => l.id);
+  if (energy >= 0.1 || r.chance(0.6)) choose(melody);
+  if (energy > 0.5 && r.chance(0.35)) choose(melody);
+
+  const texture = LAYERS.filter((l) => l.group === 'nature' || l.group === 'mind').map((l) => l.id);
+  const loved = texture.filter((id) => w(id) >= 2).sort((a, b) => w(b) - w(a));
+  if (loved.length >= 2 && r.chance(0.35)) { chosen.add(loved[0]); chosen.add(loved[1]); }
+  else if (r.chance(0.85)) choose(texture, (id) => w(id) * (id === 'binaural' ? 0.4 : 1));
+
+  // never just one lonely layer
+  if (chosen.size < 2) choose(texture, (id) => w(id) * (id === 'binaural' ? 0.2 : 1));
+  // seven at most: past that the mix turns to soup
+  const order = [...[...texture].sort((a, b) => w(a) - w(b)), 'wood', 'handdrum', 'pulse'];
   for (const id of order) if (chosen.size > 7 && chosen.has(id)) chosen.delete(id);
   return chosen;
 }
@@ -374,21 +395,61 @@ const b64 = {
   dec: (str) => new TextDecoder().decode(Uint8Array.from(atob(str.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0))),
 };
 
-export function encodeScene(s) {
-  const data = {
+function sceneData(s) {
+  return {
     v: 2, n: s.name, t: s.tagline, mo: s.mood, e: Math.round(s.energy * 100), p: s.palette, r: s.root, m: s.mode,
     pm: s.prevMood, sd: s.seed, pr: s.preRun, k: s.kids,
     a: s.a4, j: s.just ? 1 : 0,
     g: pack(s.g, GLOBAL_PARAMS),
     l: LAYERS.map((d, i) => (s.layers[d.id].on ? [i, ...pack(s.layers[d.id].p, d.schema)] : null)).filter(Boolean),
   };
-  return b64.enc(JSON.stringify(data));
+}
+
+export function encodeScene(s) {
+  return b64.enc(JSON.stringify(sceneData(s)));
 }
 
 export function decodeScene(str) {
   try {
-    const d = JSON.parse(b64.dec(str));
-    if (d.v !== 2) return null;
+    return fromData(JSON.parse(b64.dec(str)));
+  } catch {
+    return null;
+  }
+}
+
+/*
+ * Share links: the same data, deflated, behind a readable slug of the
+ * scene's name: "#amber-harbor.z…". Roughly a third of the old length.
+ * Old "#s=…" links still open.
+ */
+const bytesToB64 = (u8) => btoa(String.fromCharCode(...u8)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const b64ToBytes = (str) => Uint8Array.from(atob(str.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+const pipe = async (bytes, stream) => new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(stream)).arrayBuffer());
+export const slug = (name) => String(name || 'scene').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 32) || 'scene';
+
+export async function shareCode(s) {
+  const json = JSON.stringify(sceneData(s));
+  if (typeof CompressionStream === 'undefined') return `s=${b64.enc(json)}`;
+  const z = await pipe(new TextEncoder().encode(json), new CompressionStream('deflate-raw'));
+  return `${slug(s.name)}.z${bytesToB64(z)}`;
+}
+
+export async function decodeShare(hash) {
+  const old = hash.match(/#s=([A-Za-z0-9_-]+)/);
+  if (old) return decodeScene(old[1]);
+  const m = hash.match(/\.z([A-Za-z0-9_-]+)/);
+  if (!m || typeof DecompressionStream === 'undefined') return null;
+  try {
+    const raw = await pipe(b64ToBytes(m[1]), new DecompressionStream('deflate-raw'));
+    return fromData(JSON.parse(new TextDecoder().decode(raw)));
+  } catch {
+    return null;
+  }
+}
+
+function fromData(d) {
+  try {
+    if (!d || d.v !== 2) return null;
     const layers = {};
     for (const def of LAYERS) layers[def.id] = { on: false, p: defaults(def.schema) };
     for (const [i, ...vals] of d.l || []) {

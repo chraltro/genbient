@@ -6,12 +6,13 @@
 
 It installs as an app from the browser's share menu ("Add to Home Screen") and works offline after the first visit.
 
-## Four ways to use it
+## Five ways to use it
 
 - **Listen.** Ambient scenes in twelve moods. The line under the title reads like a sentence (*"With a beat and song chords. Oceanic mood, staying put."*), and every underlined word is a control.
-- **Run.** Set a cadence, or tap along with your steps. The kick lands on every step, and the rest of the music plays at half speed so it stays calm. An arranger turns the loop into an evolving song with intro, groove, lift, peak, breakdown and build. It also has interval training (push and easy stretches marked by two soft bells), a run length that ends in a cool-down, and a choice of bass lines (dub, driving, psy, funk).
+- **Run.** Set a cadence, tap along with your steps, or let the phone count them with its motion sensor and follow you. The kick lands on every step, and the rest of the music plays at half speed so it stays calm. An arranger turns the loop into an evolving song with intro, groove, lift, peak, breakdown and build. It also has interval training (push and easy stretches marked by two soft bells), a run length that ends in a cool-down, and a choice of bass lines (dub, driving, psy, funk).
+- **Focus.** Work in rounds (25 minutes of focus and 5 minute breaks, for example). The music thins out and holds still while you work and opens up on breaks, with a soft bell at each change.
 - **Sleep.** A timer with a long fade, and *wind down*, which makes the music gradually darker, slower and sparser. You can pick one-tap sleep sounds (rain, ocean, brown noise, stream, night, fire) and follow a breathing guide.
-- **Simple.** Pick a world (Ocean, Forest, Rain, Stars, Night) and what your finger plays. Everything is in a happy five-note scale, so nothing you play can sound wrong, and the volume stays below 60%. This mode is good for children.
+- **Simple.** Pick a world (Ocean, Forest, Rain, Stars, Night, Underwater, Campfire, Mountain) and what your finger plays. Your finger leaves colour trails on the screen as it plays. Everything is in a happy five-note scale, so nothing you play can sound wrong, and the volume stays below 60%. This mode is good for children.
 
 **Full-screen play-along** (the corner icon) hides everything except the lines. The whole screen becomes the instrument, and nothing you touch can pause the music or change a setting. Hold the ring in the corner to leave.
 
@@ -19,7 +20,7 @@ You can also:
 - **Rec** a lossless WAV clip.
 - **Save** scenes you like.
 - Go **Back** after Random.
-- **Share** a link that recreates the exact scene.
+- **Share** a short link that recreates the exact scene (`#amber-harbor.z…`, compressed, named after the scene).
 
 ## How the music is made
 

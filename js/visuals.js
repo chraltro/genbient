@@ -36,6 +36,8 @@ export class Visuals {
     this.bumps = [];
     this.pending = [];
     this.fingers = new Map();
+    this.drawing = false; // Simple mode: fingers leave fading colour trails
+    this.trails = [];
     this.resize();
     addEventListener('resize', () => this.resize());
     this.last = performance.now();
@@ -52,7 +54,7 @@ export class Visuals {
   resting() {
     const c = this.col, tg = this.target;
     const settled = ['bg', 'ink'].every((k) => Math.abs(c[k][0] - tg[k][0]) + Math.abs(c[k][1] - tg[k][1]) + Math.abs(c[k][2] - tg[k][2]) < 1.5);
-    return !this.engine.playing && !this.fingers.size && !this.breath && settled;
+    return !this.engine.playing && !this.fingers.size && !this.breath && !this.trails.length && settled;
   }
 
   setQuality(q) { this.quality = QUALITY[q] || QUALITY.balanced; this.resize(); }
@@ -85,10 +87,19 @@ export class Visuals {
       const f = this.fingers.get(id);
       if (f) this.addBump(f.x, this.lineAtY(f.y), 0.6, 'touch');
       this.fingers.delete(id);
+      if (this.stroke) delete this.stroke[id];
       return;
     }
     const prev = this.fingers.get(id);
     this.fingers.set(id, { x, y, a: prev ? prev.a : 0 });
+    if (this.drawing) {
+      // one stroke per finger; colour follows pitch: warm and low on the left, cool and high on the right
+      if (!prev || !this.stroke?.[id]) (this.stroke ||= {})[id] = { pts: [], hue: 20 + (x / this.W) * 220 };
+      const s = this.stroke[id];
+      s.pts.push({ x, y, t: performance.now() });
+      if (s.pts.length === 1) this.trails.push(s);
+      if (this.trails.length > 24) this.trails.shift();
+    }
   }
 
   lineAtY(y) {
@@ -232,5 +243,31 @@ export class Visuals {
       g.strokeStyle = rgba(mixc(col.ink, col.accent, clamp(heat * 0.8, 0, 1)), alpha);
       g.stroke();
     }
+    this.drawTrails();
+  }
+
+  // Colour a finger leaves behind in Simple mode, fading over a few seconds.
+  drawTrails() {
+    if (!this.trails.length) return;
+    const { g } = this;
+    const now = performance.now();
+    const light = this.col.bg[0] + this.col.bg[1] + this.col.bg[2] > 380;
+    g.lineCap = 'round';
+    g.lineJoin = 'round';
+    for (const s of this.trails) {
+      while (s.pts.length && now - s.pts[0].t > 3500) s.pts.shift();
+      for (let k = 1; k < s.pts.length; k++) {
+        const a = s.pts[k - 1], b = s.pts[k];
+        const life = 1 - (now - b.t) / 3500;
+        const hue = s.hue + k * 1.5;
+        g.strokeStyle = `hsla(${hue % 360}, 80%, ${light ? 45 : 62}%, ${Math.max(0, life) * 0.85})`;
+        g.lineWidth = 3 + life * 7;
+        g.beginPath();
+        g.moveTo(a.x, a.y);
+        g.lineTo(b.x, b.y);
+        g.stroke();
+      }
+    }
+    this.trails = this.trails.filter((s) => s.pts.length);
   }
 }

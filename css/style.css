@@ -66,7 +66,8 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .modes button.on { color: var(--ink); }
 .modes button.on::after { content: ''; position: absolute; left: 0; right: 0; bottom: 3px; height: 1px; background: var(--accent); }
 #sleep-left { font: 400 10px/1 var(--mono); color: var(--accent); margin-left: 3px; vertical-align: super; font-style: normal; }
-#sleep-left:empty { display: none; }
+#sleep-left:empty, #focus-left:empty { display: none; }
+#focus-left { font: 400 10px/1 var(--mono); color: var(--accent); margin-left: 3px; vertical-align: super; font-style: normal; }
 
 /* A quiet scrim in the scene's own ground colour sits behind the words
    while the interface is showing, and fades to the waves below them. */
@@ -458,3 +459,6 @@ body[data-mode="kids"] .title h1 { font-size: clamp(32px, 9vw, 50px); }
   .world-ring { width: 50px; height: 50px; }
   .kids-q { margin: 6px 0 6px; }
 }
+.run-links { display: grid; gap: 0; }
+.run-links .tap-link { padding: 7px 0; text-align: left; }
+.run-links .tap-link.live { color: var(--accent); }
