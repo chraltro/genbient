@@ -121,7 +121,6 @@ body[data-mode="run"].idle .panel .phrase, body[data-mode="run"].idle .panel .pi
 
 /* ─── header ─── */
 .top { display: flex; align-items: center; justify-content: space-between; height: 40px; transition: opacity 1.4s var(--ease); }
-.brand { font: italic 400 19px/1 var(--serif); letter-spacing: 0.01em; color: var(--ink-2); }
 .top-actions { display: flex; gap: 18px; }
 .text-btn { font: 500 12px/1 var(--mono); color: var(--ink-2); padding: 14px 0; min-width: 28px; white-space: nowrap; }
 .text-btn.active, .text-btn:active { color: var(--ink); }

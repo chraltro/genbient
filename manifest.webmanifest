@@ -1,7 +1,7 @@
 {
   "name": "Genbient: generative soundscapes",
   "short_name": "Genbient",
-  "description": "A generative ambient instrument. Endless procedural soundscapes you can play with a finger.",
+  "description": "Generative ambient music you can play with a finger: for listening, running and sleeping.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

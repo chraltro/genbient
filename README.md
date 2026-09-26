@@ -1,68 +1,76 @@
 # Genbient
 
-A generative ambient instrument for the phone. Every scene is built from a seed, you can play along by dragging a finger anywhere, and everything is synthesised live in the browser. Nothing is a recording.
+**Generative ambient music you can play with a finger.** Every scene is composed on the spot from a seed: harmony, melody, rhythm, weather and colour. Everything is synthesised live in the browser. There are no samples, no recordings, no accounts and no tracking.
 
-**Live:** https://chraltro.github.io/genbient/
+**Try it:** https://chraltro.github.io/genbient/ (best on a phone, with headphones)
 
-## How it's laid out
+It installs as an app from the browser's share menu ("Add to Home Screen") and works offline after the first visit.
 
-- **Listen · Run · Sleep** at the top are the three ways to use it. Under the scene name, each mode reads as a sentence. The underlined words are controls: two-way words flip when tapped, the others open a row of alternatives beneath the sentence. A quiet mono line underneath shows status.
-  - *Listen*: "With a beat and song chords. Oceanic mood, staying put."
-  - *Run*: the cadence dial (− / + and "tap your steps"), then "Two on, two easy, for 30 minutes. Song chords, psy bass." The line under it shows the section, song part, clock, skip and more.
-  - *Sleep*: "Stop in 30 min, fading over five minutes, winding down. Rain, breathing calm."
-  - *Simple*: one-tap play, good for children too. Pick a world (Ocean, Forest, Rain, Stars, Night) and what your finger plays (bells, piano, singing, glass, soft). Everything is in a happy five-note scale with song chords, so whatever you play fits, and the volume never goes past 60%. It also has *Play with the whole screen*, *Surprise!* and a 15-minute bedtime.
-- **Full screen play-along** (the corner icon, top right): everything but the lines disappears and the whole screen is the instrument. Taps and keys can't pause or change settings. Hold the ring in the corner for a moment to leave.
-- **Rec** and the full-screen icon sit top right. **‹ Back**, **Save** and **Share** sit under the scene name.
-- The dock holds the deep editing: **Scenes** (saved, recent, mood, energy, regenerate one part, starting points), **Layers**, **Random**, **Music**, **Sound**.
+## Four ways to use it
 
-## What's in it
+- **Listen.** Ambient scenes in twelve moods. The line under the title reads like a sentence (*"With a beat and song chords. Oceanic mood, staying put."*), and every underlined word is a control.
+- **Run.** Set a cadence, or tap along with your steps. The kick lands on every step, and the rest of the music plays at half speed so it stays calm. An arranger turns the loop into an evolving song with intro, groove, lift, peak, breakdown and build. It also has interval training (push and easy stretches marked by two soft bells), a run length that ends in a cool-down, and a choice of bass lines (dub, driving, psy, funk).
+- **Sleep.** A timer with a long fade, and *wind down*, which makes the music gradually darker, slower and sparser. You can pick one-tap sleep sounds (rain, ocean, brown noise, stream, night, fire) and follow a breathing guide.
+- **Simple.** Pick a world (Ocean, Forest, Rain, Stars, Night) and what your finger plays. Everything is in a happy five-note scale, so nothing you play can sound wrong, and the volume stays below 60%. This mode is good for children.
 
-- **28 layers** in five groups, each with its own controls (level, filter, pan, reverb and echo sends, plus instrument-specific shape):
-  - *Harmony*: drone, pads (6 timbres), strings, formant choir, shimmer, bass (7 patterns)
-  - *Melody*: arpeggiator, felt piano, kalimba, FM bells, marimba, flute/shakuhachi/ocarina, singing bowls
-  - *Rhythm*: soft kick, hand drum, shaker/hats/brush, woodblock/clave/rim, heartbeat, all on Euclidean patterns
-  - *Nature*: rain, ocean, stream, wind, fire, birdsong, crickets and frogs, distant thunder
-  - *Mind*: binaural beats with optional isochronic pulse, noise bed
-- **About 300 controls**, all declared once in a schema (`js/params.js` and each layer's `static schema`). The UI renders from it, the generator randomises it, and share links encode it.
-- **Music engine**: tempo transport with meter (4/4, 3/4, 5/4, 6/8, 7/8, 9/8), swing and humanise. Chord loops and other progression styles change on the bar, with chord colour (7ths, 9ths, suspensions), inversions, voice leading and modulation. Melodic layers play motifs that repeat and develop, or arpeggios, wandering lines or chords.
-- **Saved and recent scenes**: *Save* under the title keeps a scene in *Scenes → Saved*. Every scene you leave goes into *Recent*. *Back* (or Back on the notice after Random, or the previous-track button on headphones and the lock screen) returns to the last one.
-- **Song chords**: 100 chord progressions of the kind real songs use (`js/progressions.js`), written per scale so every chord comes out right: major, minor, dorian, mixolydian, lydian, phrygian, harmonic minor and pentatonic. With Song chords on, a scene picks a verse and a chorus and plays verse twice, chorus twice, round again, never rewritten. It keeps its key, chords change at a song's pace (at most about 10 s), and there are fewer suspensions and inversions. Off by default; new scenes follow the setting, and scenes in unusual scales move to the nearest familiar one. In a running song, chords change every 4 bars and the arranger picks the part: verse in intro, groove and build, chorus in lift and peak, a bridge in the breakdown.
-- **Fresh bass**: a Groove bass pattern at the drum tempo in four styles, with 36 one-bar patterns (nine per style, ordered sparse to busy). *Dub* (Massive Attack): long, patient notes over a heavy sub. *Drive* (Muse): fuzzed saw and square sixteenths. *Psy* (Shpongle): rolling off-beats around the kick with a resonant filter that sweeps over 16 bars. *Funk*: syncopation, octave jumps and ghost notes. Every note is a clean sine sub plus a body layer that can be dirtied and filtered, pitched so the root sits between 38 and 76 Hz. The master low cut stays under ~26 Hz while it plays. It adds a lead-in to each chord change and a fill every fourth bar. In a running song it gets busier as the song lifts and settles into long notes in breakdowns.
-- **Procedural scenes**: 12 moods × energy, with a Rhythm on/off mode (off: no drums, held bass, and Random makes beatless scenes). The **Random** button rolls a new scene. Regenerate one part (harmony, rhythm, melody, texture, sound, colours) and keep the rest. Journey mode drifts on its own, and an evolution setting slowly reshapes sounds while you listen.
-- **Running**: set a cadence (−/+, tap along with your steps, or presets from 150 to 180). The kick lands on every step and never drops out. Everything musical is locked to the step grid: no swing, straight echoes, and chords and melodies in half-time. In *Evolving song* mode an arranger (`js/conductor.js`) moves through intro, groove, lift, peak, breakdown and build sections. Instruments take turns, drums change pattern, and fills, risers and impacts mark the transitions. Intensity is Easy, Steady or Push. *Steady loop* keeps everything fixed. A run clock counts time while the music plays. *Intervals* (1/2, 2/2 or 4/3 minutes of push and easy, after a 5 minute warm-up) switch the arranger into a peak or a breakdown (a push stays in peak and lift, an easy stretch in groove, so the drums never drop out mid-push), can raise the cadence during a push, and mark each change with two soft bell notes. A run length (20 to 90 min) ends the run with bells and an easy cool-down. Random during a run gives new music on the same beat. A looping silent media element keeps iOS playing with the screen locked.
-- **Touch**: drag anywhere. Left to right plays notes in key (5 instruments), up and down opens the tone and space of the whole mix.
-- **Record**: the Rec button captures a lossless 16-bit stereo WAV (at the device's sample rate). The capture sits before the volume control and runs in an AudioWorklet. Optional 1.5 s fades, peak levelling to −1 dB and auto-stop. The scene's share link is written into the file's metadata. You can listen back to the clip before saving it. It saves through the share sheet on phones and downloads on computers.
-- **Share links** carry the complete state.
-- **Sleep tools**: sleep timer with a chosen fade (scheduled on the audio clock, so it still happens if the phone suspends the page). *Wind down* slowly darkens the sound, slows the tempo by up to 12 % and thins it out over the timer, then restores the scene afterwards. Plus sleep sounds, breathing guide, wake lock and battery modes.
-- **Keyboard**: space plays or pauses, G or N for Random, B for Back, S to save, R to record, L / U / Z for Listen, Run and Sleep, 1 to 4 open the panels, Esc closes them.
-- **Updates**: the service worker fetches from the network first, so a new version shows up the next time the app opens. Offline, it falls back to the cache.
+**Full-screen play-along** (the corner icon) hides everything except the lines. The whole screen becomes the instrument, and nothing you touch can pause the music or change a setting. Hold the ring in the corner to leave.
 
-## Performance
+You can also:
+- **Rec** a lossless WAV clip.
+- **Save** scenes you like.
+- Go **Back** after Random.
+- **Share** a link that recreates the exact scene.
 
-The visuals are strokes and flat fills only (no blur, no gradients, no blend modes). They are frame-capped at 30 fps by default, 12 fps when paused and 10 fps behind a panel. Only one convolution reverb runs at a time. *Sound → Battery → Saver* drops to 20 fps and fewer lines.
+## How the music is made
 
-## Running locally
+- **28 synthesised layers.** Pads, strings, choir, drone, bass, piano, kalimba, bells, marimba, flute, singing bowls, arpeggiator, Euclidean percussion, rain, ocean, wind, fire, birds, crickets, thunder, binaural beats and noise. Every layer is built from oscillators, filtered noise and envelopes.
+- **Harmony.** Fifteen scales, chord loops with voice leading, and *song chords*: 100 real-world progressions written per scale, played as a verse and chorus.
+- **Melody.** Motifs that repeat and develop in four-phrase sentences and land on a home note. Other layers play arpeggios, wandering lines or chords.
+- **A tempo grid.** Meters include 4/4, 3/4, 5/4, 6/8, 7/8 and 9/8, with swing and humanise. In running mode, everything locks to the step grid.
+- **Around 300 parameters.** Each is declared once in a schema: the interface is drawn from it, the generator randomises it, and share links encode it.
+- **The mix.** Each layer has its own low cut, so kick and bass keep their room. On the master bus: tape warmth, wow and flutter, chorus, a convolution reverb and a ping-pong delay, then a glue compressor and a limiter.
 
-No build step and no dependencies:
+## Privacy
+
+Nothing leaves your device. Settings and saved scenes live in the browser's local storage, and a share link carries the whole scene in its own URL. The only outside request is for the fonts, from Google Fonts.
+
+## Running it locally
+
+There's no build step and there are no dependencies. Serve the folder with any static server:
 
 ```sh
-npx http-server . -p 8080
+python3 -m http.server 8080
+# or: npx http-server . -p 8080
 ```
 
-## Structure
+Then open http://localhost:8080. Audio starts on the first tap, as browsers require.
+
+## Code map
 
 ```
-js/main.js            UI, sheets, touch input, share, timers
-js/engine.js          transport, master effects, evolution
-js/touch.js           the screen as an instrument
-js/params.js          global parameter schema
-js/theory.js          scales, chords, progressions, voice leading
+index.html            the page
+css/style.css         the whole look
+js/main.js            interface: modes, sheets, touch, sleep, running, recording, share
+js/engine.js          audio engine: transport, master chain, low-end guard, evolution
+js/conductor.js       the running arranger (sections, fills, risers, intervals)
+js/theory.js          scales, chords, voice leading, song form
+js/progressions.js    the 100 song progressions
 js/composer.js        Euclidean rhythms, motifs, arpeggios
-js/scenes.js          palettes, moods, generator, rerolls, share encoding
-js/visuals.js         ridge-line visuals
-js/layers/*.js        every sound layer and its schema
+js/scenes.js          moods, palettes, the scene generator, share links
+js/params.js          the global parameter schema
+js/layers/*.js        every instrument and its parameters
+js/touch.js           the screen as an instrument
+js/visuals.js         the ridge-line visuals
+js/recorder*.js       WAV recording (AudioWorklet)
+sw.js                 offline support
 ```
+
+`window.genbient` exposes the engine, state and a few helpers, for poking around in the browser console.
+
+## Browser support
+
+It works in current Safari (iOS and macOS), Chrome and Firefox. On iPhone, keep the page open and the music keeps playing with the screen locked. It also works through CarPlay and Bluetooth.
 
 ## Deployment
 
-`.github/workflows/pages.yml` publishes to GitHub Pages on every push to `main`.
+`.github/workflows/pages.yml` publishes the `main` branch to GitHub Pages.
