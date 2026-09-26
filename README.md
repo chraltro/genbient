@@ -45,6 +45,10 @@ python3 -m http.server 8080
 
 Then open http://localhost:8080. Audio starts on the first tap, as browsers require.
 
+## Self-hosting
+
+The included `Dockerfile` serves the app with nginx (port 80), with cache headers that let updates arrive promptly. It works as-is on Coolify, Railway, Fly and similar hosts.
+
 ## Code map
 
 ```
