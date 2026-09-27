@@ -266,7 +266,7 @@ function generate() {
   if (mode() === 'kids') return kidsSurprise();
   if (running()) { newRunMusic(); toast('New music, same beat', undoAction()); return; }
   const mood = prefs.mood === 'any' ? undefined : prefs.mood;
-  applyScene(songify(generateScene(newSeed(), { mood, energy: prefs.energy ?? undefined, rhythm: !!state.g.beat, shape: prefs.shape, lean: clockLean() })));
+  applyScene(songify(generateScene(newSeed(), { mood, energy: prefs.energy ?? undefined, rhythm: !!state.g.beat, shape: prefs.shape, lean: clockLean(), tempo: state.g.beat ? prefs.tempo || undefined : undefined })));
   if (!started) togglePlay();
   else toast(state.name, undoAction());
 }
@@ -506,7 +506,46 @@ const conductor = new Conductor(engine, {
     state.root = engine.harmony.root;
     renderMeta();
   },
+  get palette() { return runPalette; },
+  onChapter: () => newChapter(),
 });
+
+/*
+ * A running chapter: the piece drifts to a neighbouring place and the music
+ * follows it (a new loop, a neighbouring key, new sounds and colour, a new
+ * name) while the beat, the cadence and the arrangement carry on.
+ */
+let runPalette = null;
+const soundsOf = (sc) => Object.fromEntries(LAYERS.filter((d) => ['harmony', 'melody'].includes(d.group) && d.id !== 'bass' && sc.layers[d.id].on).map((d) => [d.id, sc.layers[d.id].p]));
+// the run's own sounds, plus a second realisation of the same piece for variety
+function startPalette() {
+  const extra = state.genome ? soundsOf(generateScene(newSeed(), { genome: state.genome, rhythm: false })) : {};
+  runPalette = { ...extra, ...soundsOf(state) };
+}
+const CHAPTER_GLOBALS = ['prog', 'loopLen', 'complexity', 'sus', 'inversions', 'bright', 'warmth', 'wow', 'chorus', 'revDamp', 'dlyFb', 'dlyMix', 'cloud', 'shimmer', 'density', 'tension', 'leap', 'range'];
+function newChapter() {
+  const seed = newSeed();
+  const r = seeded(seed);
+  const G = state.genome ? nudge(r, state.genome, 0.16, prefs.shape || {}) : undefined;
+  const mood = MOODS.find((m) => m.id === state.prevMood) ? state.prevMood : undefined;
+  const fresh = runify(songify(generateScene(seed, { genome: G, mood: G ? undefined : mood, rhythm: false })), state.g.bpm, seed);
+  runPalette = soundsOf(fresh);
+  for (const id of CHAPTER_GLOBALS) {
+    if (fresh.g[id] == null || (id === 'bright' && fresh.g[id] < 0.78)) continue;
+    state.g[id] = fresh.g[id];
+    engine.setGlobal(id, fresh.g[id]);
+  }
+  // a neighbouring key on the next chord (song chords keep the song's scale)
+  engine.modulateTo((state.root + r.pick([5, 7, 7, 2, 9, 3])) % 12, state.g.song ? state.mode : fresh.mode);
+  if (fresh.genome) { state.genome = fresh.genome; visuals.setCharacter(state.genome); }
+  state.palette = fresh.palette;
+  visuals.setPalette(state.palette);
+  setTheme();
+  state.name = fresh.name;
+  state.tagline = fresh.tagline;
+  renderTitle(true);
+  save();
+}
 
 function syncConductor(restart) {
   const want = started && running() && prefs.runSong;
@@ -524,7 +563,7 @@ function syncConductor(restart) {
   }
   // a full running band needs a little more headroom than an ambient bed
   if (engine.ctx) engine.drive.gain.setTargetAtTime(want ? 0.75 : 0.95, engine.ctx.currentTime, 0.5);
-  if (want && (restart || !conductor.active)) { conductor.start(); syncLock(); }
+  if (want && (restart || !conductor.active)) { startPalette(); conductor.start(); syncLock(); }
   else if (!want && conductor.active) conductor.stop();
   syncTide(restart);
 }
@@ -650,6 +689,7 @@ function newRunMusic() {
   const mood = MOODS.find((m) => m.id === state.prevMood) ? state.prevMood : undefined;
   const base = songify(generateScene(newSeed(), { mood, rhythm: false }));
   applyScene(runify(base, state.g.bpm, newSeed()));
+  runPalette = null;
 }
 
 function endRun() {
@@ -745,6 +785,12 @@ function renderPanel() {
 
   if (m === 'listen') {
     flip(state.g.beat ? 'With a beat' : 'Without a beat', () => setRhythm(!state.g.beat));
+    if (state.g.beat) {
+      text(' at ');
+      const own = !prefs.tempo;
+      const opts = [[0, own ? `${Math.round(state.g.bpm)} bpm` : 'its own tempo'], ...TEMPOS.map((b) => [b, `${b} bpm`])];
+      choose('tempo', own ? [[0, `${Math.round(state.g.bpm)} bpm`], ...TEMPOS.filter((b) => b !== Math.round(state.g.bpm)).map((b) => [b, `${b} bpm`])] : opts, prefs.tempo || 0, setTempo);
+    }
     text(' and ');
     flip(state.g.song ? 'song chords' : 'free chords', () => setSong(!state.g.song));
     text('. ');
@@ -883,6 +929,25 @@ function renderPanel() {
   refreshViews();
 }
 
+/* ─── tempo: a beat at the speed you choose ─── */
+
+const TEMPOS = [80, 90, 100, 110, 120, 128];
+
+// The piece is recomposed around the tempo (same character, same seed), so
+// chord lengths and melodies fit it; the choice holds for new pieces.
+function setTempo(v) {
+  prefs.tempo = v || 0;
+  save();
+  if (!v || !state.genome || running()) { renderPanel(); return; }
+  const mood = prefs.mood === 'any' ? undefined : prefs.mood;
+  const next = generateScene(state.seed, { mood, genome: state.genome, rhythm: true, tempo: v });
+  next.mood = state.mood; // the same piece, faster or slower: not a different mood
+  next.name = state.name;
+  next.tagline = state.tagline;
+  applyScene(songify(next), { fade: 4, animate: false });
+  toast(`${v} bpm · held for new pieces`);
+}
+
 /* ─── the hour: new pieces lean toward the light outside ─── */
 
 // Brighter and livelier around midday, darker and slower deep in the night.
@@ -907,7 +972,7 @@ function reshape(changes) {
   save();
   if (!state.genome || running() || mode() === 'kids') return;
   const mood = prefs.mood === 'any' ? undefined : prefs.mood;
-  const next = generateScene(state.seed, { mood, genome: { ...state.genome, ...changes }, rhythm: !!state.g.beat });
+  const next = generateScene(state.seed, { mood, genome: { ...state.genome, ...changes }, rhythm: !!state.g.beat, tempo: state.g.beat ? prefs.tempo || undefined : undefined });
   next.name = state.name;
   next.tagline = state.tagline;
   applyScene(songify(next), { fade: 5, animate: false });

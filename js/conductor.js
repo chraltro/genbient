@@ -48,6 +48,7 @@ export class Conductor {
 
   start() {
     this.active = true;
+    this.chapterAt = this.ctx ? this.ctx.currentTime : 0;
     this.lock = null;
     this.upcoming = null;
     this.section = null;
@@ -117,6 +118,15 @@ export class Conductor {
     const sec = SECTIONS[type];
     const cfg = INTENSITY[this.intensity];
     const prev = this.section;
+    // Chapters: every few minutes, at a breakdown or a build, the music moves
+    // on (a new loop in a neighbouring key, new sounds and colour); the beat
+    // and the cadence never change.
+    if ((type === 'breakdown' || type === 'build' || (type === 'lift' && t - this.chapterAt > 420)) && t - this.chapterAt > 240 && this.host.onChapter) {
+      this.chapterAt = t;
+      this.host.onChapter(t);
+      this.padSince = 99; // the new chapter's ground arrives now
+      this.leadSince = 99; // and a new voice with it
+    }
     const prevE = prev ? SECTIONS[prev].energy : 0;
     this.section = type;
     this.history.push(type);
@@ -167,7 +177,7 @@ export class Conductor {
     const padNow = PAD_ROLE.filter(on);
     this.padSince++;
     if (!padNow.length || (this.padSince >= 3 && chance(0.5)) || (type === 'breakdown' && chance(0.4))) {
-      const next = pick(PADS.filter((id) => !padNow.includes(id)));
+      const next = this.prefer(PADS.filter((id) => !padNow.includes(id)));
       padNow.forEach((id) => set(id, false, null, barDur * 3));
       set(next, true, this.freshParams(next, { vol: rand(0.38, 0.48), oct: 0 }), barDur * 3);
       this.padSince = 0;
@@ -190,8 +200,8 @@ export class Conductor {
     while (leads.length < leadCount) {
       const pool = LEADS.filter((id) => !leads.includes(id) && !on(id) && !resting.has(id));
       if (!pool.length) break;
-      const id = pick(pool);
-      const style = type === 'breakdown' && id === 'piano' ? 'chords' : pick(['motif', 'motif', 'motif', 'arp', 'walk']);
+      const id = this.prefer(pool);
+      const style = type === 'breakdown' && (id === 'piano' || id === 'harp') ? 'chords' : pick(['motif', 'motif', 'motif', 'arp']);
       // a new melody arrives on the downbeat, not creeping in
       set(id, true, this.freshParams(id, { vol: rand(0.36, 0.48) * (leads.length ? 0.85 : 1), style, density: rand(0.35, 0.65), oct: 0 }), barDur / 4);
       leads.push(id);
@@ -232,10 +242,21 @@ export class Conductor {
     this.host.onSection({ type, name: sec.name, bars: this.length, t });
   }
 
+  // The chapter's designed sound for an instrument if it has one (shaped by
+  // the generator), else a random one.
   freshParams(id, over) {
+    const mine = this.host.palette?.[id];
+    if (mine) return { ...mine, ...over, vol: over.vol ?? mine.vol };
     const def = LAYER_BY_ID[id];
     const p = randomize(def.schema, seeded((Math.random() * 2 ** 32) >>> 0), defaults(def.schema));
     return { ...p, ...over };
+  }
+
+  // Of the candidates, the ones this chapter was composed with come first.
+  prefer(ids) {
+    const pal = this.host.palette || {};
+    const own = ids.filter((id) => pal[id]);
+    return pick(own.length && chance(0.8) ? own : ids);
   }
 
   /* ─── transitions, synthesised here so they don't need a layer ─── */

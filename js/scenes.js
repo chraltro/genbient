@@ -71,9 +71,10 @@ function makeRunnable(g, layers, r, bpm) {
   g.pump = r.float(0.3, 0.4);
   // a tight room: short reverb, echoes that don't blur the steps, bright enough for the hats
   Object.assign(g, { revSize: Math.min(g.revSize, 0.35), revMix: Math.min(g.revMix, 0.45), revPre: Math.max(g.revPre, 0.5), bright: Math.max(g.bright, 0.78), drift: 0, cloud: Math.min(g.cloud ?? 0, 0.1), shimmer: 0 });
-  // Harmony you can run to: one repeating four-chord loop, each chord held
-  // for about twenty seconds, no key changes, no surprises.
-  Object.assign(g, { prog: 'loop', loopLen: 4, chordBars: 8, repetition: 1, modulate: 0 });
+  // Harmony you can run to: a four-chord loop, a chord every four steps'
+  // worth of bars (about six seconds), no surprise key changes. The running
+  // arranger moves to a new loop and a neighbouring key every few minutes.
+  Object.assign(g, { prog: 'loop', loopLen: 4, chordBars: 2, repetition: 1, modulate: 0 });
   // Everything on the step grid: no swing, no looseness, straight echoes.
   Object.assign(g, { swing: 0, humanize: 0.02, dlyDiv: r.pick([0.5, 0.5, 1, 0.25]) });
   g.density = Math.min(g.density, 0.5);
@@ -120,7 +121,7 @@ export function unrun(state) {
 export function generateScene(seed, opts = {}) {
   const r = seeded(seed);
   const mood = opts.mood === 'run' ? 'run' : opts.mood;
-  const c = compose(seed, { mood, energy: opts.energy, rhythm: mood === 'run' ? true : opts.rhythm, shape: opts.shape, genome: opts.genome, lean: opts.lean });
+  const c = compose(seed, { mood, energy: opts.energy, rhythm: mood === 'run' ? true : opts.rhythm, shape: opts.shape, genome: opts.genome, lean: opts.lean, bpm: mood === 'run' ? undefined : opts.tempo });
   const g = c.g;
   const lead = LAYERS.find((d) => c.roles[d.id] === 'lead');
   if (lead && TOUCH_FOR[lead.id]) g.touchVoice = TOUCH_FOR[lead.id];

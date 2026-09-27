@@ -296,10 +296,10 @@ function plan(r, G, beat) {
 
 /* ─────────────────────────── realising a genome ─────────────────────────── */
 
-function globals(r, G, beat) {
+function globals(r, G, beat, bpm) {
   const g = defaults(GLOBAL_PARAMS);
   g.beat = beat;
-  g.bpm = Math.round(clamp(44 + G.pace * 62 + G.pulse * 14 + r.float(-3, 3), 40, 132));
+  g.bpm = bpm ? Math.round(bpm) : Math.round(clamp(44 + G.pace * 62 + G.pulse * 14 + r.float(-3, 3), 40, 132));
   // meters: plain four most of the time; lilts and odd meters as things get strange
   const odd = oddness(G);
   const meters = [['4/4', 1.4 - odd * 0.6], ['3/4', 0.12 + (1 - G.pulse) * 0.15 + G.melody * 0.08], ['6/8', 0.1 + G.sync * 0.15], ['5/4', odd * 0.35 - 0.05], ['7/8', odd * 0.3 - 0.08]];
@@ -474,8 +474,8 @@ function natureFor(r, G, lean, layers, roles) {
   }
 }
 
-function realise(r, G, { beat, lean }) {
-  const g = globals(r, G, beat);
+function realise(r, G, { beat, lean, bpm }) {
+  const g = globals(r, G, beat, bpm);
   const layers = {};
   const roles = {};
   const voices = {};
@@ -675,6 +675,7 @@ export const unpackGenome = (arr) => (Array.isArray(arr) && arr.length === DIM_I
  *   shape:  dimensions the listener has fixed, { pace: 0.2, … }
  *   genome: realise exactly this genome (rerolls, journeys)
  *   lean:   qualities to lean toward softly, { light: 0.8 }
+ *   bpm:    a tempo to compose around
  */
 export function compose(seed, opts = {}) {
   const r = seeded((seed ^ 0x5bd1e995) >>> 0);
@@ -693,6 +694,8 @@ export function compose(seed, opts = {}) {
   // a soft lean (the time of day, say): a pull, never a rule
   for (const [k, v] of Object.entries(opts.lean || {})) if (!(k in fixed) && G[k] != null) G[k] += (v - G[k]) * 0.35;
   if (opts.rhythm === true || opts.rhythm === 'force') G.pulse = Math.max(G.pulse, 0.55);
+  // a chosen tempo: the piece's pace follows it, so chords and melodies fit
+  if (opts.bpm) { G.pace = clamp((opts.bpm - 44 - G.pulse * 14) / 62, 0, 1); fixed.pace = G.pace; }
   if (opts.rhythm === false) G.pulse = Math.min(G.pulse, 0.3);
   const beatOf = (x) => (opts.rhythm === false ? false : opts.rhythm ? true : x.pulse >= 0.5);
   const lean = anchor ? LEAN[anchor.id] : null;
@@ -703,7 +706,7 @@ export function compose(seed, opts = {}) {
   for (let i = 0; i < n; i++) {
     const Gi = i === 0 || opts.genome ? G : nudge(r, G, 0.05, fixed);
     const ri = seeded((seed * 31 + i * 7919) >>> 0);
-    const real = realise(ri, Gi, { beat: beatOf(Gi), lean });
+    const real = realise(ri, Gi, { beat: beatOf(Gi), lean, bpm: opts.bpm });
     const c = critic(Gi, real);
     if (!best || c.score > best.score) best = { ...real, G: Gi, score: c.score, parts: c.parts, i };
   }
