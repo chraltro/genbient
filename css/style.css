@@ -107,7 +107,7 @@ body[data-mode="run"].idle .title::before { opacity: 0.6; }
 .whisper .text-btn { padding: 9px 0; color: var(--ink-3); }
 .whisper .skip-btn { color: var(--accent); margin-left: auto; }
 .whisper .skip-btn[hidden] { display: none; }
-.run-top { display: flex; align-items: center; gap: 16px; margin-bottom: 8px; }
+.run-top { display: flex; flex-wrap: wrap; align-items: center; gap: 0 16px; margin-bottom: 8px; }
 .run-top .cadence button { width: 40px; height: 40px; border-radius: 50%; background: var(--bg); font: 300 20px/1 var(--sans); }
 .run-top .cadence output { font: 400 44px/1 var(--serif); min-width: 84px; font-variant-numeric: lining-nums; }
 .run-top .cadence span { display: inline-block; width: 3.2em; margin-left: 2px; font: 400 11px/1.2 var(--mono); color: var(--ink-3); }
@@ -121,7 +121,7 @@ body[data-mode="run"].idle .panel { opacity: 0.5; }
 body[data-mode="run"].idle .panel .phrase, body[data-mode="run"].idle .panel .picker { visibility: hidden; }
 
 /* ─── header ─── */
-.top { display: flex; align-items: center; justify-content: space-between; height: 40px; transition: opacity 1.4s var(--ease); }
+.top { display: flex; align-items: center; justify-content: space-between; gap: 14px; height: 40px; transition: opacity 1.4s var(--ease); }
 .top-actions { display: flex; gap: 18px; }
 .text-btn { font: 500 12px/1 var(--mono); color: var(--ink-2); padding: 14px 0; min-width: 28px; white-space: nowrap; }
 .text-btn.active, .text-btn:active { color: var(--ink); }
@@ -451,9 +451,16 @@ body[data-mode="kids"] .title h1 { font-size: clamp(32px, 9vw, 50px); }
   .modes button { font-size: 17px; }
   .top-actions { gap: 10px; }
 }
-@media (max-width: 340px) {
-  .modes { gap: 10px; }
+@media (max-width: 380px) {
+  .modes { gap: 9px; }
   .modes button { font-size: 15.5px; }
+  .top-actions { gap: 14px; }
+  .top { gap: 10px; }
+}
+@media (max-width: 340px) {
+  .modes { gap: 7px; }
+  .modes button { font-size: 14.5px; }
+  .top-actions { gap: 12px; }
 }
 @media (max-width: 360px) {
   .world-ring { width: 50px; height: 50px; }
@@ -462,3 +469,6 @@ body[data-mode="kids"] .title h1 { font-size: clamp(32px, 9vw, 50px); }
 .run-links { display: grid; gap: 0; }
 .run-links .tap-link { padding: 7px 0; text-align: left; }
 .run-links .tap-link.live { color: var(--accent); }
+.sense-row { display: grid; justify-items: start; }
+.sense-stop { font: 400 12px/1 var(--mono); color: var(--ink-2); padding: 4px 0 7px; text-decoration: underline; text-underline-offset: 3px; }
+.sense-stop[hidden] { display: none; }

@@ -578,8 +578,8 @@ function cadenceControl(views = cadenceViews) {
   down.setAttribute('aria-label', 'Slower cadence');
   up.setAttribute('aria-label', 'Faster cadence');
   const show = () => { out.textContent = running() ? Math.round(state.g.bpm) : prefs.cadence; };
-  down.addEventListener('click', () => setCadence((running() ? state.g.bpm : prefs.cadence) - 1));
-  up.addEventListener('click', () => setCadence((running() ? state.g.bpm : prefs.cadence) + 1));
+  down.addEventListener('click', () => handCadence((running() ? state.g.bpm : prefs.cadence) - 1));
+  up.addEventListener('click', () => handCadence((running() ? state.g.bpm : prefs.cadence) + 1));
   el.append(down, out, up, h('span', null, 'steps / min'));
   show();
   views.add(show);
@@ -717,11 +717,20 @@ function renderPanel() {
     const links = h('div', 'run-links');
     links.append(tap);
     if (StepSense.supported) {
+      const row = h('div', 'sense-row');
       const sense = h('button', 'text-btn tap-link', '');
       sense.setAttribute('aria-label', 'Count my steps with the motion sensor');
-      sense.addEventListener('click', toggleSense);
-      panelViews.add(() => { sense.textContent = senseLabel(); sense.classList.toggle('live', steps.active); });
-      links.append(sense);
+      sense.addEventListener('click', () => { if (!steps.active) toggleSense(); });
+      const stop = h('button', 'text-btn sense-stop', 'stop counting');
+      stop.setAttribute('aria-label', 'Stop counting steps');
+      stop.addEventListener('click', () => stopSense());
+      panelViews.add(() => {
+        sense.textContent = senseLabel();
+        sense.classList.toggle('live', steps.active);
+        stop.hidden = !steps.active;
+      });
+      row.append(sense, stop);
+      links.append(row);
     }
     top.append(cadenceControl(panelViews), links);
     panel.append(top);
@@ -1229,11 +1238,25 @@ function senseLabel() {
   if (!steps.active) return 'count my steps';
   if (senseState === 'listening') return 'start running…';
   if (senseState === 'counting') return 'counting steps…';
-  return `following you · ${senseState}`;
+  return `following · ${senseState}`;
+}
+
+function stopSense(msg = 'Stopped counting steps · the tempo stays where it is') {
+  if (!steps.active) return;
+  steps.stop();
+  senseState = '';
+  refreshViews();
+  toast(msg);
+}
+
+// Setting the tempo by hand takes it back from the step counter.
+function handCadence(v) {
+  if (steps.active) stopSense('Stopped following your steps · the tempo is yours');
+  setCadence(v);
 }
 
 async function toggleSense() {
-  if (steps.active) { steps.stop(); senseState = ''; refreshViews(); toast('Stopped counting steps'); return; }
+  if (steps.active) return stopSense();
   try {
     await steps.start();
     toast('Start running: the beat will find your step');
@@ -1255,7 +1278,7 @@ function tapStep(label) {
   const iv = taps.slice(1).map((t, i) => t - taps[i]).sort((a, b) => a - b);
   const median = iv[Math.floor(iv.length / 2)];
   const cadence = Math.round(60000 / median);
-  setCadence(cadence);
+  handCadence(cadence);
   say(`${clamp(cadence, 120, 200)} steps a minute`);
 }
 
@@ -1268,7 +1291,7 @@ function runSection() {
   const tap = h('button', 'tap', 'Tap along with your steps<small>tap 4 or more times</small>');
   tap.addEventListener('click', () => tapStep(tap.querySelector('small')));
   run.append(tap);
-  run.append(chips(CADENCES.map((c) => ({ value: c, label: String(c) })), running() ? state.g.bpm : null, (v) => setCadence(v), 'scroll'));
+  run.append(chips(CADENCES.map((c) => ({ value: c, label: String(c) })), running() ? state.g.bpm : null, (v) => handCadence(v), 'scroll'));
   const arr = h('div', 'choice');
   arr.append(h('span', 'choice-label', 'Arrangement'));
   arr.append(chips([{ value: true, label: 'Evolving song' }, { value: false, label: 'Steady loop' }], prefs.runSong, (v) => {
