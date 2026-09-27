@@ -268,11 +268,12 @@ function fitVoice(v, t, lean) {
 // How a melodic voice plays, by fit to the genome.
 const BEHAVIOUR = {
   loops: (G) => 2 * (G.repeat - 0.6) + (0.4 - G.pulse) + 0.8 * (0.45 - G.motion) + 0.5 * (0.45 - G.pace),
-  motif: (G) => 2 * (G.melody - 0.4) + 0.3 - Math.abs(G.repeat - 0.65),
+  // a groove wants a hook: tunes gain as the pulse grows
+  motif: (G) => 2 * (G.melody - 0.4) + 0.3 - Math.abs(G.repeat - 0.65) + 0.35 * Math.max(0, G.pulse - 0.3),
   sparse: (G) => 2 * (0.35 - G.melody) + (0.35 - G.density),
   walk: (G) => 1.5 * (0.55 - G.repeat) + (G.melody - 0.3) - 0.45,
   chords: (G) => 1.5 * (G.tension - 0.5) + (G.motion - 0.5) + 0.5 * (G.pulse - 0.3) - 0.15,
-  arp: (G) => 1.5 * (G.pace - 0.5) + (G.repeat - 0.5) + 0.5 * (G.pulse - 0.3) - 0.1,
+  arp: (G) => 0.9 * (G.pace - 0.5) + (G.repeat - 0.5) + 0.3 * (G.pulse - 0.3) - 0.15,
   euclid: (G) => 2 * (G.pulse - 0.4) + (G.repeat - 0.5),
 };
 const stylesOf = (id) => LAYER_BY_ID[id].schema.find((x) => x.id === 'style')?.options.map((o) => o[0]) || null;
@@ -302,7 +303,8 @@ function globals(r, G, beat, bpm) {
   g.bpm = bpm ? Math.round(bpm) : Math.round(clamp(44 + G.pace * 62 + G.pulse * 14 + r.float(-3, 3), 40, 132));
   // meters: plain four most of the time; lilts and odd meters as things get strange
   const odd = oddness(G);
-  const meters = [['4/4', 1.4 - odd * 0.6], ['3/4', 0.12 + (1 - G.pulse) * 0.15 + G.melody * 0.08], ['6/8', 0.1 + G.sync * 0.15], ['5/4', odd * 0.35 - 0.05], ['7/8', odd * 0.3 - 0.08]];
+  // with a beat, four almost always: grooves live in four
+  const meters = [['4/4', (1.4 - odd * 0.6) * (beat ? 4 : 1)], ['3/4', 0.12 + (1 - G.pulse) * 0.15 + G.melody * 0.08], ['6/8', 0.1 + G.sync * 0.15], ['5/4', odd * 0.35 - 0.05], ['7/8', odd * 0.3 - 0.08]];
   g.meter = choose(r, meters, ([, w]) => Math.log(Math.max(1e-3, w)), 1)[0];
   g.swing = G.pulse > 0.35 ? clamp((G.sync - 0.35) * 0.55 + G.age * 0.12, 0, 0.45) : 0.04;
   g.humanize = clamp(0.08 + G.organic * 0.25 + (1 - G.pulse) * 0.2, 0.05, 0.55);
@@ -694,8 +696,9 @@ export function compose(seed, opts = {}) {
   // a soft lean (the time of day, say): a pull, never a rule
   for (const [k, v] of Object.entries(opts.lean || {})) if (!(k in fixed) && G[k] != null) G[k] += (v - G[k]) * 0.35;
   if (opts.rhythm === true || opts.rhythm === 'force') G.pulse = Math.max(G.pulse, 0.55);
-  // a chosen tempo: the piece's pace follows it, so chords and melodies fit
-  if (opts.bpm) { G.pace = clamp((opts.bpm - 44 - G.pulse * 14) / 62, 0, 1); fixed.pace = G.pace; }
+  // a chosen tempo lifts the pace part of the way: over a quick beat a piece
+  // can still feel unhurried (deep house lives at 120 with sparse melodies)
+  if (opts.bpm) { G.pace = Math.max(G.pace, clamp((opts.bpm - 44 - G.pulse * 14) / 62, 0, 1) * 0.6); fixed.pace = G.pace; }
   if (opts.rhythm === false) G.pulse = Math.min(G.pulse, 0.3);
   const beatOf = (x) => (opts.rhythm === false ? false : opts.rhythm ? true : x.pulse >= 0.5);
   const lean = anchor ? LEAN[anchor.id] : null;
