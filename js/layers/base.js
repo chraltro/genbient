@@ -38,14 +38,53 @@ export class Layer {
     this.filt = filter(ctx, 'lowpass', this.toneHz(), 0.5);
     this.panner = makePanner(ctx, this.p.pan);
     this.bus.connect(this.hpf).connect(this.filt).connect(this.panner);
-    this.panner.connect(def.group === 'harmony' ? engine.pumpIn : engine.dryIn);
+    // everything leaves through `post`, so the panner can be swapped for a 3D one
+    this.post = gain(ctx, 1);
+    this.panner.connect(this.post);
+    this.post.connect(def.group === 'harmony' ? engine.pumpIn : engine.dryIn);
     this.revSend = gain(ctx, (def.revScale ?? 1) * this.p.rev);
-    this.panner.connect(this.revSend).connect(engine.revIn);
+    this.post.connect(this.revSend).connect(engine.revIn);
     this.dlySend = gain(ctx, this.p.dly);
-    this.panner.connect(this.dlySend).connect(engine.dlyIn);
+    this.post.connect(this.dlySend).connect(engine.dlyIn);
   }
 
   get now() { return this.ctx.currentTime; }
+
+  /*
+   * Around you: on headphones a part can sit somewhere in the space around
+   * the head (HRTF), and drift. place = { az, sway, spin, el, d } in radians
+   * and metres, or null for plain stereo.
+   */
+  place(spec) {
+    if (spec === this.spotSpec) return; // already there: keep drifting from where it is
+    this.spotSpec = spec;
+    const ctx = this.ctx;
+    if (spec && !this.p3) {
+      this.p3 = ctx.createPanner();
+      Object.assign(this.p3, { panningModel: 'HRTF', distanceModel: 'inverse', refDistance: 1.5, rolloffFactor: 0.25 });
+      this.p3.connect(this.post);
+    }
+    const on = !!spec;
+    if (on !== !!this.spot) {
+      try { this.filt.disconnect(on ? this.panner : this.p3); } catch { /* not connected */ }
+      this.filt.connect(on ? this.p3 : this.panner);
+    }
+    this.spot = spec ? { ...spec, t0: this.now, phase: Math.random() * 6.28 } : null;
+    if (spec) this.moveTo(this.now, 0.05);
+  }
+
+  moveTo(t, tc = 1.5) {
+    const s = this.spot;
+    if (!s || !this.p3) return;
+    const k = t - s.t0;
+    const az = s.az + (s.sway || 0) * Math.sin(k * 0.05 + s.phase) + (s.spin || 0) * k;
+    const el = s.el || 0;
+    const d = s.d || 2;
+    const P = this.p3;
+    const x = Math.sin(az) * Math.cos(el) * d, y = Math.sin(el) * d, z = -Math.cos(az) * Math.cos(el) * d;
+    if (P.positionX) { P.positionX.setTargetAtTime(x, t, tc); P.positionY.setTargetAtTime(y, t, tc); P.positionZ.setTargetAtTime(z, t, tc); }
+    else P.setPosition(x, y, z);
+  }
   get h() { return this.e.harmony; }
   get g() { return this.e.g; }
   get level() { return this.def.gain * this.p.vol * this.p.vol * this.presence; }

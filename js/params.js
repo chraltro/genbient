@@ -144,6 +144,8 @@ export const GLOBAL_SECTIONS = [
       R('dlyTone', 'Echo tone', 0, 1, 0.5),
       R('dlyMix', 'Echo level', 0, 1, 0.5, { gen: [0.25, 0.7] }),
       R('dlySpread', 'Echo width', 0, 1, 0.75),
+      R('cloud', 'Memory cloud', 0, 1, 0, { gen: [0, 0.5], hint: 'grains of the last few seconds sung back into the room' }),
+      R('shimmer', 'Shimmer', 0, 1, 0, { gen: [0, 0.5], hint: 'some of those grains an octave up' }),
     ],
   },
   {
@@ -184,7 +186,7 @@ export const VISUAL_PARAMS = [
 ];
 
 // 'beat' is packed last so share links made before it existed still decode.
-const LATE = ['beat', 'halfTime', 'song', 'groove']; // appended in the order they were added
+const LATE = ['beat', 'halfTime', 'song', 'groove', 'cloud', 'shimmer']; // appended in the order they were added
 export const GLOBAL_PARAMS = [
   ...GLOBAL_SECTIONS.flatMap((s) => s.params).filter((p) => !LATE.includes(p.id)),
   ...LATE.map((id) => GLOBAL_SECTIONS.flatMap((s) => s.params).find((p) => p.id === id)),

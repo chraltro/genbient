@@ -2,7 +2,7 @@
 // layers at the same Level sit together (measured: each designed sound
 // rendered alone at the same Level, loudness while it plays).
 import { Drone, Pad, Strings, Choir, Shimmer, Bass } from './tonal.js';
-import { Arp, Kalimba, Piano, Bells, Marimba, Flute, Bowls } from './melodic.js';
+import { Arp, Kalimba, Piano, Bells, Marimba, Flute, Bowls, Harp } from './melodic.js';
 import { Kick, Shaker, HandDrum, Wood, Heartbeat } from './rhythm.js';
 import { Rain, Ocean, Stream, Wind, Fire, Birds, Night, Thunder } from './nature.js';
 import { Binaural, Noise } from './mind.js';
@@ -46,6 +46,8 @@ export const LAYERS = [
   def('thunder', Thunder, 'nature', 'Distant Thunder', 0.8),
   def('binaural', Binaural, 'mind', 'Binaural Beat', 0.14),
   def('noise', Noise, 'mind', 'Noise Bed', 0.28),
+  // added later: new layers go at the end, so share links keep their meaning
+  def('harp', Harp, 'melody', 'Plucked Strings', 2.3, { side: 0, lowHz: 82, highHz: 1800 }),
 ];
 
 export const LAYER_BY_ID = Object.fromEntries(LAYERS.map((l) => [l.id, l]));

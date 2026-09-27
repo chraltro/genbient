@@ -6,7 +6,7 @@ import { LAYER_BY_ID } from './layers/index.js';
 import { randomize, defaults } from './params.js';
 import { seeded, clamp, lerp, rand, pick, chance, weighted, glide, gain, filter, osc, makePanner, pluckEnv, disposeOnEnd } from './util.js';
 
-const LEADS = ['piano', 'keys', 'bells', 'marimba', 'arp', 'flute'];
+const LEADS = ['piano', 'keys', 'bells', 'marimba', 'arp', 'flute', 'harp'];
 const PADS = ['pad', 'strings', 'choir', 'shimmer'];
 const PAD_ROLE = [...PADS, 'drone'];           // a scene's drone counts as its bed
 const TEXTURES = ['rain', 'wind', 'stream', 'birds', 'ocean'];

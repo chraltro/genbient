@@ -1,7 +1,7 @@
 import { Engine } from './engine.js';
 import { Conductor, FRESH_BASS } from './conductor.js';
 import { Tide } from './tide.js';
-import { DIMS, DIM_BY_ID } from './genome.js';
+import { DIMS, DIM_BY_ID, DIM_IDS, ANCHOR_BY_ID, nudge } from './genome.js';
 import { Recorder } from './recorder.js';
 import { StepSense } from './stepsense.js';
 import { Visuals } from './visuals.js';
@@ -141,8 +141,9 @@ function applyScene(next, { fade = 5, animate = true, remember = true } = {}) {
   bedChoice = null;
   lastSceneChange = Date.now();
   visuals.setPalette(state.palette);
+  visuals.setCharacter(state.genome);
   setTheme();
-  if (started) engine.apply(state, { fade });
+  if (started) { engine.apply(state, { fade }); engine.setSpatial(!!prefs.around, state.roles); }
   else engine.g = { ...engine.g, ...state.g };
   renderTitle(animate);
   syncConductor(true);
@@ -198,6 +199,7 @@ async function togglePlay() {
     if (!prefs.knowsTokens) $('#hint').textContent = 'tap an underlined word to change it';
     engine.setLite(prefs.lite);
     engine.apply(state, { fade: 6 });
+    engine.setSpatial(!!prefs.around, state.roles);
     syncConductor(true);
   }
   keepAlive.play().catch(() => {});
@@ -264,7 +266,7 @@ function generate() {
   if (mode() === 'kids') return kidsSurprise();
   if (running()) { newRunMusic(); toast('New music, same beat', undoAction()); return; }
   const mood = prefs.mood === 'any' ? undefined : prefs.mood;
-  applyScene(songify(generateScene(newSeed(), { mood, energy: prefs.energy ?? undefined, rhythm: !!state.g.beat, shape: prefs.shape })));
+  applyScene(songify(generateScene(newSeed(), { mood, energy: prefs.energy ?? undefined, rhythm: !!state.g.beat, shape: prefs.shape, lean: clockLean() })));
   if (!started) togglePlay();
   else toast(state.name, undoAction());
 }
@@ -528,7 +530,97 @@ function syncConductor(restart) {
 }
 
 // Listening has its own arranger: parts come and go on a slow tide.
-const tide = new Tide(engine, { get state() { return state; } });
+const tide = new Tide(engine, { get state() { return state; }, onPhrase: (p) => morphPhrase(p) });
+
+/*
+ * Journeys, while listening: the piece becomes another without stopping.
+ * Its qualities drift toward a neighbouring place, reached in about the
+ * chosen time. Each phrase, a fresh realisation of where it has got to is
+ * worked out; the room and colour glide toward it, a part that's resting
+ * may come back as a different instrument (or leave, or be joined by a new
+ * one), the ground crossfades now and then, and the key moves to a
+ * neighbour on a chord change. What the listener holds stays held.
+ */
+const MORPH_GLOBALS = ['revMix', 'revDamp', 'dlyMix', 'dlyFb', 'bright', 'warmth', 'wow', 'chorus', 'drift', 'cloud', 'shimmer', 'density', 'repetition', 'rests', 'complexity', 'sus', 'leap', 'range', 'tension'];
+const morph = { target: null, bedAt: 0, keyAt: 0 };
+const gap = (a, b) => DIM_IDS.reduce((s, k) => s + Math.abs(a[k] - b[k]), 0) / DIM_IDS.length;
+
+function morphTarget(r) {
+  const G = nudge(r, state.genome, 0.2, prefs.shape || {});
+  const home = ANCHOR_BY_ID[prefs.mood];
+  if (home) for (const [k, v] of Object.entries(home.at)) if (prefs.shape?.[k] == null) G[k] += (v - G[k]) * 0.3;
+  if (state.g.beat) G.pulse = Math.max(G.pulse, 0.55); else G.pulse = Math.min(G.pulse, 0.45);
+  return G;
+}
+
+function morphAdd(id, p, role, present = false) {
+  state.layers[id] = { on: true, p: structuredClone(p) };
+  state.roles[id] = role;
+  const l = engine.layers[id];
+  l.presence = present ? 1 : 0; // a newcomer waits in the wings; the tide brings it on
+  l.restAt = 0;
+  l.setAll(state.layers[id].p);
+  l.enable(present ? 16 : 1);
+  tide.since[id] = tide.phrase;
+  if (prefs.around) engine.setSpatial(true, state.roles);
+}
+
+function morphRemove(id, fade = 4) {
+  state.layers[id].on = false;
+  delete state.roles[id];
+  engine.layers[id].disable(fade);
+}
+
+function morphPhrase({ n, secs }) {
+  if (!prefs.journey || mode() !== 'listen' || !state.genome || !state.roles || n < 3 || winding) return;
+  const r = seeded(newSeed());
+  const minutes = prefs.journey;
+  if (!morph.target || gap(state.genome, morph.target) < 0.015) {
+    morph.target = morphTarget(r);
+    // arriving somewhere: now and then a neighbouring key, and new colours
+    if (n > 3 && performance.now() - morph.keyAt > minutes * 60000 * 0.8) {
+      morph.keyAt = performance.now();
+      if (!state.g.song && r.chance(0.6)) engine.modulateTo((state.root + r.pick([5, 7, 7, 5, 2, 10, 9, 3])) % 12, state.mode);
+    }
+  }
+  // drift: an exponential approach that covers most of the way in `minutes`
+  const k = 1 - Math.exp(-(secs * 2.5) / (minutes * 60));
+  for (const d of DIM_IDS) if (prefs.shape?.[d] == null) state.genome[d] += (morph.target[d] - state.genome[d]) * k;
+  visuals.setCharacter(state.genome);
+
+  const fresh = generateScene(newSeed(), { genome: state.genome, rhythm: !!state.g.beat });
+  // the room and colour glide toward the new place
+  for (const id of MORPH_GLOBALS) {
+    const v = state.g[id] + (fresh.g[id] - state.g[id]) * 0.3;
+    state.g[id] = v;
+    engine.setGlobal(id, v);
+  }
+  // a resting part may return as someone else, or not at all
+  const resting = Object.entries(state.roles).filter(([id, role]) => role !== 'bed' && role !== 'kit' && engine.layers[id]?.benched);
+  if (resting.length && r.chance(0.55)) {
+    const [id, role] = r.pick(resting);
+    const nid = Object.keys(fresh.roles).find((x) => fresh.roles[x] === role);
+    if (!nid) morphRemove(id);
+    else if (nid === id) { state.layers[id].p = structuredClone(fresh.layers[id].p); engine.layers[id].setAll(state.layers[id].p); }
+    else if (!state.layers[nid].on) { morphRemove(id, 1); morphAdd(nid, fresh.layers[nid].p, role); }
+  } else {
+    // a part the new place has and this one lacks joins, resting at first
+    const lack = Object.entries(fresh.roles).find(([id, role]) => role !== 'kit' && role !== 'bed' && !Object.values(state.roles).includes(role) && !state.layers[id].on);
+    if (lack && r.chance(0.5)) morphAdd(lack[0], fresh.layers[lack[0]].p, lack[1]);
+  }
+  // the ground crossfades into a new one every so often
+  if (performance.now() - morph.bedAt > Math.max(3, minutes * 0.5) * 60000) {
+    morph.bedAt = performance.now();
+    const old = Object.keys(state.roles).find((x) => state.roles[x] === 'bed');
+    const nb = Object.keys(fresh.roles).find((x) => fresh.roles[x] === 'bed');
+    if (nb && old && nb !== old && !state.layers[nb].on) { morphAdd(nb, fresh.layers[nb].p, 'bed', true); morphRemove(old, 16); }
+    else if (nb && nb === old) { state.layers[nb].p = structuredClone(fresh.layers[nb].p); engine.layers[nb].setAll(state.layers[nb].p); }
+  }
+  const near = MOODS.find((m) => m.id === fresh.mood);
+  if (near && state.mood !== fresh.mood && prefs.mood === 'any') { state.mood = fresh.mood; renderMeta(); }
+  if (openName === 'layers') renderSheet();
+  save();
+}
 function syncTide(restart) {
   const want = started && mode() === 'listen' && prefs.tide !== false;
   if (want && (restart || !tide.active)) tide.start();
@@ -659,7 +751,7 @@ function renderPanel() {
     const moodNow = prefs.mood === 'any' ? state.mood : prefs.mood;
     choose('mood', [...MOODS.filter((x) => x.id !== 'run').map((x) => [x.id, x.name]), ['any', 'Any']], moodNow, pickMood);
     text(' mood, ');
-    choose('drift', [[0, 'staying put'], [5, 'a new scene every 5 min'], [10, 'every 10 min'], [20, 'every 20 min'], [40, 'every 40 min']], prefs.journey, setJourney);
+    choose('drift', [[0, 'staying put'], [5, 'changing over 5 min'], [10, 'changing over 10 min'], [20, 'changing over 20 min'], [40, 'changing over 40 min']], prefs.journey, setJourney);
     text('.');
     // the piece's own qualities, each one a word to change
     if (state.genome) {
@@ -789,6 +881,17 @@ function renderPanel() {
   if (whisper.firstChild) panel.append(whisper);
   if (m === 'sleep') updateTimerStatus();
   refreshViews();
+}
+
+/* ─── the hour: new pieces lean toward the light outside ─── */
+
+// Brighter and livelier around midday, darker and slower deep in the night.
+function clockLean(date = new Date()) {
+  if (prefs.clock === false || prefs.mood !== 'any') return undefined;
+  const h = date.getHours() + date.getMinutes() / 60;
+  const sun = Math.max(0, Math.sin(((h - 6) / 12) * Math.PI)); // 0 at night, 1 at noon
+  const late = h >= 23 || h < 5;
+  return { light: 0.2 + sun * 0.6, pace: late ? 0.15 : 0.25 + sun * 0.3 };
 }
 
 /* ─── shape: steer the piece by its qualities ─── */
@@ -1766,6 +1869,14 @@ function renderCreate(el) {
     el.append(shp);
   }
 
+  const clk = h('button', 'toggle-row', `<span><b>Follow the time of day</b><small>with any mood, new pieces lean brighter at midday and darker at night</small></span><span class="switch${prefs.clock !== false ? ' on' : ''}"></span>`);
+  clk.addEventListener('click', () => {
+    prefs.clock = prefs.clock === false;
+    clk.querySelector('.switch').classList.toggle('on', prefs.clock);
+    save();
+  });
+  el.append(clk);
+
   const en = section('Energy');
   en.append(chips([[null, 'Any'], [0.03, 'Still'], [0.2, 'Calm'], [0.45, 'Flowing'], [0.7, 'Groove'], [0.9, 'Lively']].map(([v, l]) => ({ value: v, label: l })),
     prefs.energy, (v) => { prefs.energy = v; save(); }));
@@ -1936,6 +2047,16 @@ function renderSound(el) {
   vol.append(control({ id: 'volume', label: 'Master', type: 'range', min: 0, max: 1, step: 0.01, fmt: (v) => `${Math.round(v * 100)}%` },
     prefs.volume, (v) => { prefs.volume = v; engine.setVolume(vol()); if (sleepEnd) engine.scheduleSleep((sleepEnd - Date.now()) / 1000, fadeSecs()); save(); }));
   el.append(vol);
+  const arr = h('button', 'toggle-row', `<span><b>Around you</b><small>melodies placed in the space around your head, drifting slowly</small></span><span class="switch${prefs.around ? ' on' : ''}"></span>`);
+  arr.addEventListener('click', () => {
+    prefs.around = !prefs.around;
+    arr.querySelector('.switch').classList.toggle('on', prefs.around);
+    engine.setSpatial(prefs.around, state.roles);
+    save();
+  });
+  const sp = section('Headphones');
+  sp.append(arr);
+  el.append(sp);
   for (const id of ['space', 'colour']) globalSection(GLOBAL_SECTIONS.find((s) => s.id === id), el);
   const touch = GLOBAL_SECTIONS.find((s) => s.id === 'touch');
   const ts = section('Touch');
@@ -2108,7 +2229,7 @@ setInterval(() => {
     }
     updateTimerStatus();
   }
-  if (engine.playing && prefs.journey && !conductor.active && !winding && focus.phase !== 'focus' && now - lastSceneChange > prefs.journey * 60000) {
+  if (engine.playing && prefs.journey && !conductor.active && !winding && focus.phase !== 'focus' && !tide.active && now - lastSceneChange > prefs.journey * 60000) {
     applyScene(mutateScene(state, newSeed(), prefs.shape), { fade: 10 });
   }
 }, 1000);

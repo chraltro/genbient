@@ -66,6 +66,12 @@ export const PRESETS = {
     shakuhachi: { voice: 'shaku', breath: 0.55, vibrato: 0.25, glide: 0.35, phrase: 4, rev: 0.75, dly: 0.15 },
     ocarina: { voice: 'ocarina', breath: 0.2, vibrato: 0.3, glide: 0.15, phrase: 5, rev: 0.65, dly: 0.25 },
   },
+  harp: {
+    harp: { string: 'harp', bright: 0.5, decay: 6, damp: 0.35, rev: 0.7, dly: 0.25 },
+    nylon: { string: 'nylon', bright: 0.32, decay: 3.5, damp: 0.55, rev: 0.5, dly: 0.2 },
+    steel: { string: 'steel', bright: 0.68, decay: 5, damp: 0.3, rev: 0.55, dly: 0.3 },
+    koto: { string: 'koto', bright: 0.75, decay: 2.5, damp: 0.2, rev: 0.6, dly: 0.2 },
+  },
   bowls: {
     tibetan: { decay: 1.1, beating: 0.5, hardness: 0.3, quant: 0.3, rev: 0.8 },
   },

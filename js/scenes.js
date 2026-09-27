@@ -58,7 +58,7 @@ const offLayer = (def) => ({ on: false, p: defaults(def.schema) });
  * Scenes come from generator.js: a point in the musical genome, realised by
  * principles and chosen by a critic. Moods are named places in that space.
  */
-const TOUCH_FOR = { piano: 'pluck', bells: 'bell', keys: 'bell', marimba: 'pluck', flute: 'voice', bowls: 'glass', arp: 'glass' };
+const TOUCH_FOR = { harp: 'pluck', piano: 'pluck', bells: 'bell', keys: 'bell', marimba: 'pluck', flute: 'voice', bowls: 'glass', arp: 'glass' };
 
 // Running needs a beat you can step to: kick on every beat, hats on the
 // off-beats, a pulsing bass, all at the chosen cadence and never skipping.
@@ -70,7 +70,7 @@ function makeRunnable(g, layers, r, bpm) {
   g.halfTime = true;
   g.pump = r.float(0.3, 0.4);
   // a tight room: short reverb, echoes that don't blur the steps, bright enough for the hats
-  Object.assign(g, { revSize: Math.min(g.revSize, 0.35), revMix: Math.min(g.revMix, 0.45), revPre: Math.max(g.revPre, 0.5), bright: Math.max(g.bright, 0.78), drift: 0 });
+  Object.assign(g, { revSize: Math.min(g.revSize, 0.35), revMix: Math.min(g.revMix, 0.45), revPre: Math.max(g.revPre, 0.5), bright: Math.max(g.bright, 0.78), drift: 0, cloud: Math.min(g.cloud ?? 0, 0.1), shimmer: 0 });
   // Harmony you can run to: one repeating four-chord loop, each chord held
   // for about twenty seconds, no key changes, no surprises.
   Object.assign(g, { prog: 'loop', loopLen: 4, chordBars: 8, repetition: 1, modulate: 0 });
@@ -90,8 +90,8 @@ export function runify(state, cadence, seed) {
   if (next.mood !== 'run') {
     next.prevMood = next.mood;
     // remember the room, to give it back when the run ends
-    const { revSize, revMix, revPre, bright, drift, pump } = next.g;
-    next.preRun = { revSize, revMix, revPre, bright, drift, pump };
+    const { revSize, revMix, revPre, bright, drift, pump, cloud, shimmer } = next.g;
+    next.preRun = { revSize, revMix, revPre, bright, drift, pump, cloud, shimmer };
   }
   next.mood = 'run';
   makeRunnable(next.g, next.layers, seeded(seed), cadence);
@@ -120,7 +120,7 @@ export function unrun(state) {
 export function generateScene(seed, opts = {}) {
   const r = seeded(seed);
   const mood = opts.mood === 'run' ? 'run' : opts.mood;
-  const c = compose(seed, { mood, energy: opts.energy, rhythm: mood === 'run' ? true : opts.rhythm, shape: opts.shape, genome: opts.genome });
+  const c = compose(seed, { mood, energy: opts.energy, rhythm: mood === 'run' ? true : opts.rhythm, shape: opts.shape, genome: opts.genome, lean: opts.lean });
   const g = c.g;
   const lead = LAYERS.find((d) => c.roles[d.id] === 'lead');
   if (lead && TOUCH_FOR[lead.id]) g.touchVoice = TOUCH_FOR[lead.id];
@@ -264,7 +264,7 @@ export function normalize(s) {
     prevMood: MOOD_BY_ID[s?.prevMood] ? s.prevMood : undefined,
     kids: typeof s?.kids === 'string' ? s.kids.slice(0, 12) : undefined,
     preRun: s?.preRun && typeof s.preRun === 'object'
-      ? Object.fromEntries(['revSize', 'revMix', 'revPre', 'bright', 'drift', 'pump'].filter((k) => Number.isFinite(s.preRun[k])).map((k) => [k, clamp(s.preRun[k], 0, 1)]))
+      ? Object.fromEntries(['revSize', 'revMix', 'revPre', 'bright', 'drift', 'pump', 'cloud', 'shimmer'].filter((k) => Number.isFinite(s.preRun[k])).map((k) => [k, clamp(s.preRun[k], 0, 1)]))
       : undefined,
     energy: clamp(Number(s?.energy) || 0.3, 0, 1),
     seed: s?.seed >>> 0,

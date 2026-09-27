@@ -94,6 +94,10 @@ export const VOICES = [
   V('flute.shakuhachi', 'lead', 0.35, 0.35, 1, 0.55, 0.65),
   V('flute.ocarina', 'lead answer', 0.4, 0.35, 0.8, 0.65),
   V('bowls.tibetan', 'lead answer', 0.4, 0.6, 0.95, 0.45, 0.6),
+  V('harp.harp', 'lead answer', 0.5, 0.8, 0.95, 0.6),
+  V('harp.nylon', 'lead answer', 0.35, 0.8, 0.9, 0.45),
+  V('harp.steel', 'lead answer', 0.65, 0.85, 0.8, 0.5),
+  V('harp.koto', 'lead answer', 0.7, 0.85, 0.95, 0.55, 0.6),
 ];
 
 // The world outside: w element (0 fire … 1 sea), life, and the light it belongs to.
@@ -113,7 +117,7 @@ const LEAN = {
   airport: { piano: 0.5 }, rainpiano: { piano: 0.9, rain: 0.8 }, sacred: { bowls: 0.6, drone: 0.5 },
   celestial: { choir: 0.4, shimmer: 0.3 }, oceanic: { ocean: 0.9 }, sylvan: { birds: 0.7, stream: 0.3 },
   stormy: { rain: 0.8, thunder: 1 }, nocturne: { night: 0.6, piano: 0.3 }, hearth: { fire: 1 },
-  glacial: { wind: 0.6, bells: 0.3 }, space: { drone: 0.4 }, pulse: { marimba: 0.6 }, postrock: { strings: 0.5 },
+  glacial: { wind: 0.6, bells: 0.3 }, space: { drone: 0.4 }, pulse: { marimba: 0.6 }, postrock: { strings: 0.5, harp: 0.5 },
   downtempo: { piano: 0.2 }, lofi: { piano: 0.7, rain: 0.3 }, ritual: { flute: 0.5, drone: 0.4 }, sleep: { ocean: 0.3 },
 };
 
@@ -201,12 +205,13 @@ const MORPH = {
     p.rate = G.pace > 0.65 ? r.pick([1, 2]) : G.pace < 0.3 ? r.pick([2, 4]) : 2;
   },
   flute: (p, G) => { p.breath = mix(p.breath, 0.1 + G.organic * G.age * 0.6, 0.4); p.vibrato = mix(p.vibrato, 0.2 + G.organic * 0.3, 0.4); p.phrase = Math.round(mix(p.phrase, 3 + G.melody * 5, 0.5)); },
+  harp: (p, G) => { p.bright = mix(p.bright, 0.15 + G.bright * 0.7, 0.5); p.decay = mix(p.decay, 2 + G.space * 5, 0.4); p.damp = mix(p.damp, 0.6 - G.bright * 0.4, 0.3); },
   bowls: (p, G) => { p.quant = mix(p.quant, G.pulse, 0.6); p.beating = mix(p.beating, 0.3 + G.strange * 0.5, 0.4); },
 };
 
 // What's left after each instrument's calibration: some presets of the same
 // instrument are simply louder or softer than others (dB, measured).
-const TRIM = { 'bells.temple': -4.5, 'bells.chime': -1, 'arp.sequence': 6, 'arp.glass': -2.5, 'pad.analog': 4.5, 'pad.glass': -2.5,
+const TRIM = { 'harp.nylon': 4, 'harp.harp': -1, 'harp.koto': 4, 'bells.temple': -4.5, 'bells.chime': -1, 'arp.sequence': 6, 'arp.glass': -2.5, 'pad.analog': 4.5, 'pad.glass': -2.5,
   'pad.air': 3, 'flute.ocarina': -3, 'flute.shakuhachi': 2, 'drone.deep': 1.5, 'bass.pulse': 3, 'bass.funk': -2.5, 'bass.dub': -1.5,
   'birds.owls': -6, 'wind.breeze': 1.5 };
 const trim = (id) => Math.pow(10, (TRIM[id] || 0) / 40); // level goes as vol squared
@@ -253,7 +258,7 @@ function roleBase(role, G) {
 }
 
 // Some sounds are simply more loved and more versatile: a small prior.
-const APPEAL = { 'piano.felt': 0.6, 'piano.grand': 0.5, 'piano.upright': 0.3, 'keys.kalimba': 0.4, 'marimba.soft': 0.35, 'bells.glass': 0.3, 'flute.flute': 0.25, 'arp.glass': 0.2, 'pad.warm': 0.4, 'pad.air': 0.3, 'strings.section': 0.3, 'strings.distant': 0.2, 'choir.ooh': 0.2 };
+const APPEAL = { 'harp.nylon': 0.45, 'harp.harp': 0.35, 'piano.felt': 0.6, 'piano.grand': 0.5, 'piano.upright': 0.3, 'keys.kalimba': 0.4, 'marimba.soft': 0.35, 'bells.glass': 0.3, 'flute.flute': 0.25, 'arp.glass': 0.2, 'pad.warm': 0.4, 'pad.air': 0.3, 'strings.section': 0.3, 'strings.distant': 0.2, 'choir.ooh': 0.2 };
 
 function fitVoice(v, t, lean) {
   const d = 1.0 * (v.b - t.b) ** 2 + 1.2 * (v.a - t.a) ** 2 + (t.ow ?? 1.5) * (v.o - t.o) ** 2 + 0.8 * (v.reg - t.reg) ** 2 + 1.2 * (v.x - t.x) ** 2;
@@ -345,6 +350,9 @@ function globals(r, G, beat) {
   g.dlyDiv = beat ? r.pick([0.75, 0.5, 0.75, 1]) : r.pick([0.75, 1, 1.5]);
   g.dlyTone = 0.3 + G.bright * 0.4;
   g.dlySpread = 0.5 + G.space * 0.4;
+  // the memory cloud blooms in slow, spacious pieces; bright ones shimmer
+  g.cloud = clamp(G.space * 0.55 + (1 - G.pace) * 0.25 + G.change * 0.1 - 0.3, 0, 0.6);
+  g.shimmer = clamp(G.light * 0.45 + G.register * 0.2 + G.space * 0.2 - 0.35, 0, 0.6);
 
   // colour
   g.bright = clamp(0.3 + G.bright * 0.45 + (G.light - 0.5) * 0.1, 0.2, 0.85);
@@ -666,6 +674,7 @@ export const unpackGenome = (arr) => (Array.isArray(arr) && arr.length === DIM_I
  *   rhythm: true wants a beat, false none, undefined lets the genome decide
  *   shape:  dimensions the listener has fixed, { pace: 0.2, … }
  *   genome: realise exactly this genome (rerolls, journeys)
+ *   lean:   qualities to lean toward softly, { light: 0.8 }
  */
 export function compose(seed, opts = {}) {
   const r = seeded((seed ^ 0x5bd1e995) >>> 0);
@@ -681,6 +690,8 @@ export function compose(seed, opts = {}) {
     const a = free ? null : r.pick(ANCHORS.filter((x) => !x.hidden));
     G = sampleGenome(r, { anchor: a, fixed, energy: opts.energy, spread: 0.24 });
   }
+  // a soft lean (the time of day, say): a pull, never a rule
+  for (const [k, v] of Object.entries(opts.lean || {})) if (!(k in fixed) && G[k] != null) G[k] += (v - G[k]) * 0.35;
   if (opts.rhythm === true || opts.rhythm === 'force') G.pulse = Math.max(G.pulse, 0.55);
   if (opts.rhythm === false) G.pulse = Math.min(G.pulse, 0.3);
   const beatOf = (x) => (opts.rhythm === false ? false : opts.rhythm ? true : x.pulse >= 0.5);

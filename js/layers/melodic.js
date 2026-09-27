@@ -291,6 +291,37 @@ export class Flute extends Layer {
   }
 }
 
+/* ─── Plucked strings (physical model, pluck-worklet.js) ─── */
+// What each string is: pluck brightness, how fast its highs fade, how long it rings.
+const STRINGS = { harp: [1, 1, 1.2], nylon: [0.7, 1.3, 0.8], steel: [1.25, 0.8, 1.1], koto: [1.3, 0.6, 0.6] };
+export class Harp extends Melodic {
+  static schema = [
+    ...common({ vol: 0.55, tone: 0.9, rev: 0.6, dly: 0.25 }),
+    OCT(0),
+    STYLE(styles('motif', 'arp', 'chords', 'loops', 'sparse', 'walk'), 'motif'),
+    DENSITY(0.45),
+    C('string', 'String', [['harp', 'Harp'], ['nylon', 'Nylon guitar'], ['steel', 'Steel string'], ['koto', 'Koto']], 'harp'),
+    R('bright', 'Pluck', 0, 1, 0.5, { hint: 'soft finger ↔ bright pick' }),
+    R('decay', 'Ring', 0.5, 10, 4, { fmt: sec }),
+    R('damp', 'Mellowing', 0, 1, 0.4, { hint: 'how fast the highs fade' }),
+  ];
+  get octave() { return 4 + (this.p.oct ?? 0); }
+  play(t, f, v) {
+    this.node ||= this.e.makePluck(this);
+    if (!this.node) return;
+    const [b, dm, dc] = STRINGS[this.p.string] || STRINGS.harp;
+    this.node.port.postMessage({
+      t, f, v: 0.55 * v,
+      bright: clamp(this.p.bright * b * (0.7 + v * 0.4), 0, 1),
+      // low strings ring longer, as they do
+      decay: this.p.decay * dc * clamp(Math.sqrt(262 / f), 0.55, 1.6),
+      damp: clamp(this.p.damp * dm, 0, 1),
+      pan: rand(-0.45, 0.45),
+    });
+    if (v > 0.5) this.note(t, f, undefined, v * 0.5, 'harp');
+  }
+}
+
 /* ─── Singing bowls ─── */
 export class Bowls extends Layer {
   static schema = [

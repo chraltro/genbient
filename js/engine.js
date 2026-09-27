@@ -83,6 +83,15 @@ function satCurve(amount) {
   return c;
 }
 
+// Where parts sit around the listener's head, by role (radians, metres).
+const DEG = Math.PI / 180;
+const PLACES = {
+  lead: { az: -20 * DEG, sway: 25 * DEG, el: 5 * DEG, d: 1.8 },
+  answer: { az: 115 * DEG, sway: 30 * DEG, el: 0, d: 2.2 },
+  halo: { az: 180 * DEG, spin: 0.021, el: 30 * DEG, d: 2.6 }, // one turn in about five minutes
+  bed2: { az: -110 * DEG, sway: 20 * DEG, el: 10 * DEG, d: 2.4 },
+};
+
 export class Engine {
   constructor() {
     this.evolveBase = new Map();
@@ -181,6 +190,15 @@ export class Engine {
     this.chOut.connect(this.agcWeight).connect(this.agcShelf).connect(this.agcMeter);
     this.chOut.connect(this.agc).connect(this.drive).connect(this.comp).connect(this.limit).connect(this.master).connect(ctx.destination);
 
+    // the visuals read the music's spectrum before the volume control, so the
+    // picture doesn't shrink when you turn it down
+    this.spec = ctx.createAnalyser();
+    this.spec.fftSize = 2048;
+    this.spec.smoothingTimeConstant = 0.5;
+    this.spec.minDecibels = -100;
+    this.spec.maxDecibels = -10;
+    this.limit.connect(this.spec);
+
     this.analyser = ctx.createAnalyser();
     this.analyser.fftSize = 1024;
     this.analyser.smoothingTimeConstant = 0.85;
@@ -225,6 +243,18 @@ export class Engine {
     this.dlyOut.connect(this.mix);
     this.dlyToRev = gain(ctx, 0.25);
     this.dlyOut.connect(this.dlyToRev).connect(this.revIn);
+
+    // the memory cloud (cloud-worklet.js): hears what goes to the room and
+    // sings grains of it back into the room, and a little into the mix
+    this.cloudOut = gain(ctx, 1);
+    this.cloudOut.connect(this.pre);
+    this.cloudOut.connect(gain(ctx, 0.5)).connect(this.mix);
+    ctx.audioWorklet?.addModule(new URL('./cloud-worklet.js', import.meta.url)).then(() => {
+      this.cloud = new AudioWorkletNode(ctx, 'genbient-cloud', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2], channelCount: 2, channelCountMode: 'explicit' });
+      this.revIn.connect(this.cloud).connect(this.cloudOut);
+      this.applyGlobals(true, 'cloud');
+    }).catch(() => { /* no worklets: no cloud */ });
+    ctx.audioWorklet?.addModule(new URL('./pluck-worklet.js', import.meta.url)).then(() => { this.pluckReady = true; }).catch(() => {});
 
     this.noise = makeNoise(ctx);
     const pw = (re) => ctx.createPeriodicWave(new Float32Array([0, ...re]), new Float32Array(re.length + 1));
@@ -296,7 +326,12 @@ export class Engine {
       }
     }
 
-    if (!(this.guardAt > now)) { this.lowGuard(now); this.autoLevel(now); this.guardAt = now + 1; }
+    if (!(this.guardAt > now)) {
+      this.lowGuard(now);
+      this.autoLevel(now);
+      if (this.spatial) for (const l of Object.values(this.layers)) if (l.spot && l.running) l.moveTo(now);
+      this.guardAt = now + 1;
+    }
     if (now >= this.nextDriftAt) {
       const d = this.g.drift;
       glide(this.tone.frequency, this.toneHz() * rand(1 - 0.4 * d, 1 + 0.25 * d), now, rand(3, 8));
@@ -430,8 +465,10 @@ export class Engine {
     const h = this.harmony;
     const loopStart = h.opts.prog !== 'loop' || h.loopPos === h.loop.length - 1;
     // song chords keep their key, like a song does
-    if (loopStart && !this.g.song && chance(this.g.modulate * 0.35)) {
-      const [root, mode] = h.modulation(this.g.modType);
+    const pending = this.pendingKey;
+    this.pendingKey = null;
+    if (pending || (loopStart && !this.g.song && chance(this.g.modulate * 0.35))) {
+      const [root, mode] = pending || h.modulation(this.g.modType);
       h.setKey(root, mode);
       for (const id in this.layers) this.layers[id].onKey(t);
       this.touch?.onChord(t);
@@ -443,6 +480,33 @@ export class Engine {
     }
     this.emit('chord', h);
   }
+
+  /*
+   * Around you (headphones): melodies placed in the space around the head
+   * and drifting, the ground left enveloping. Places come from each part's
+   * role in the scene.
+   */
+  setSpatial(on, roles = {}) {
+    this.spatial = on;
+    if (!this.ctx) return;
+    for (const [id, l] of Object.entries(this.layers)) {
+      const role = roles[id];
+      const melodic = !role && l.def.group === 'melody';
+      // only what's playing: a 3D panner costs as much on silence as on sound
+      l.place(on && l.on ? PLACES[role] || (melodic ? PLACES.answer : null) : null);
+    }
+  }
+
+  // A plucked-string voice for a layer, once its worklet has loaded.
+  makePluck(layer) {
+    if (!this.pluckReady) return null;
+    const node = new AudioWorkletNode(this.ctx, 'genbient-pluck', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
+    node.connect(layer.bus);
+    return node;
+  }
+
+  // Change key on the next chord change, without touching anything else.
+  modulateTo(root, mode) { this.pendingKey = [root, mode]; }
 
   autoLevel(now) {
     if (!this.agcMeter) return;
@@ -520,6 +584,13 @@ export class Engine {
     if (is('beat', 'bpm')) this.comp.release.setTargetAtTime(g.beat ? clamp(30 / g.bpm, 0.1, 0.3) : 0.35, t, 0.1);
     if (is('chorus')) glide(this.chWet.gain, this.lite ? 0 : g.chorus * 0.8, t, tc);
     if (is('revMix')) glide(this.revOut.gain, 0.1 + g.revMix * 1.2, t, tc);
+    if (this.cloud && is('cloud', 'shimmer', 'density', 'revSize')) {
+      const P = this.cloud.parameters;
+      glide(P.get('amount'), this.lite ? 0 : (g.cloud ?? 0), t, immediate ? 0.01 : 2);
+      glide(P.get('shimmer'), g.shimmer ?? 0, t, tc);
+      glide(P.get('density'), g.density, t, tc);
+      glide(P.get('reach'), 0.2 + g.revSize * 0.7, t, tc);
+    }
     if (is('revPre')) glide(this.pre.delayTime, g.revPre * 0.15, t, tc);
     if (is('revSize', 'revDamp')) this.rebuildReverb(immediate);
     if (is('bpm', 'dlyDiv', 'dlySpread')) {
@@ -603,6 +674,7 @@ export class Engine {
     this.revKey = null;
     this.rebuildReverb(false);
     this.applyGlobals(false, 'chorus');
+    this.applyGlobals(false, 'cloud');
   }
 
   async play() {

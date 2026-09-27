@@ -133,5 +133,6 @@ export class Tide {
       this.e.layers[back].setPresence(1, 6, t);
       this.since[back] = n;
     }
+    this.host.onPhrase?.({ n, secs: phraseS, t });
   }
 }
